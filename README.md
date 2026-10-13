@@ -125,8 +125,9 @@ Inside this app, the Gmail features are:
   While the Keeper mirrors Gmail Go, it keeps Gmail Go's own categories silent so that only the copy
   alerts.
 * **Gmail checks.** The status window shows whether Gmail Go is working, and the Keeper posts a
-  "Gmail notifications stopped working" alert if neither Gmail Go nor a full Gmail app can receive
-  push messages. A package receiver notices right away when Gmail or Gmail Go is installed, updated,
+  "Gmail notifications stopped working" alert if Gmail Go is installed but cannot post
+  notifications and no full Gmail app receives push messages either. If Gmail Go is not installed,
+  the Gmail setup is not in use, and the Keeper does not post this alert. A package receiver notices right away when Gmail or Gmail Go is installed, updated,
   changed or removed.
 * **Test trigger** (`DebugReceiver.java`). A receiver that only adb can call, for testing the Gmail
   helper. Its usage is described at the top of the file.
@@ -239,12 +240,10 @@ should read "✓ Notification access is on" and "✓ Allowed to show notificatio
 Keeper test" pops up, disappears after 7 seconds, and a kept copy from "Test website" appears right
 after and stays. Tapping that copy opens the status window again.
 
-If you do not use the Gmail setup, three things are expected and harmless:
+If you do not use the Gmail setup, two things are expected and harmless:
 
 * The Gmail line says that Gmail Go isn't installed.
 * The settings guard line says that Notification Keeper isn't linked as a companion app.
-* Shortly after setup, the Keeper may post one "Gmail notifications stopped working" alert. See
-  [Limitations and known issues](#limitations-and-known-issues) for why and when it comes back.
 
 You can close the window at any time. The Keeper keeps working in the background.
 
@@ -417,10 +416,10 @@ the `pm grant` command from [step 5](#5-allow-it-to-post-notifications).
 The Keeper lost its notification access, which also stops it from keeping anything. Tap the alert to
 open the status window and press **Fix**, or run the `allow_listener` command again.
 
-**A "Gmail notifications stopped working" alert appeared, but I don't use the Gmail setup.**
-This is expected. The check behind it is written for the Gmail setup and alerts when Gmail Go is
-missing. You can ignore it. Turning off the Keeper's "Problems" category would hide it, but it would
-also hide the warning that notification access was lost, so I do not recommend that.
+**A "Gmail notifications stopped working" alert appeared.**
+This alert only appears when Gmail Go is installed but cannot post notifications, for example after
+the Play Store updated it to a newer build. Follow the Gmail setup guide to put the 2021 build back. If
+you do not use the Gmail setup, uninstall Gmail Go and the alert will not come back.
 
 **Copies don't appear for a particular website.**
 A copy is made only when the site itself withdraws its notification. If the original stays in the
@@ -501,10 +500,9 @@ colons.
   Keeper's process restarted are not counted toward it.
 * **It depends on Chrome's notification markers.** A Chrome change to the tag or group format would
   stop the keeping, and Run test would not notice.
-* **The Gmail check also runs without the Gmail setup.** `Keeper.runGuard()` alerts when neither Gmail
-  Go nor a full Gmail app can receive push messages, and it alerts again whenever the alert's details
-  change, which includes the installed Gmail version. Without the Gmail setup, you therefore get a
-  "Gmail notifications stopped working" alert once after setup and again after Gmail web app updates.
+* **No warning when Gmail Go is removed.** `Keeper.runGuard()` treats a missing Gmail Go as "the Gmail
+  setup is not in use", so if you do use the Gmail setup and Gmail Go gets uninstalled, the Keeper
+  stays quiet. The status window still shows that Gmail Go is missing.
 * **Parts of the status window are about Gmail** even when you only use the generic keeper.
 * **Rich features exist only for Gmail.** Action buttons, the settings guard and mirroring are written
   for Gmail and Gmail Go. See the next section.
