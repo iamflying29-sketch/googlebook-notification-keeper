@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gmail helper: only events from Chrome (which shows the web Gmail) and Gmail are delivered. Gestures:
+     clicks / right-clicks (long press) on the web Gmail, only while it's in front (WebGmailHelper). -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/helper_desc"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:notificationTimeout="250"
+    android:packageNames="com.android.chrome,com.google.android.gm" />

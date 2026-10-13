@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="local.notifkeeper">
+
+    <!-- No INTERNET permission: this app never sends anything anywhere. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Package visibility: Gmail (to tell the full app from the web version) and the apps a kept
+         notification opens when tapped. -->
+    <queries>
+        <package android:name="com.google.android.gm" />
+        <!-- Gmail Go: its notifications are shown linked to the web Gmail (and its icon reused). -->
+        <package android:name="com.google.android.gm.lite" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+        </intent>
+    </queries>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!-- A normal app window. Closing it never affects the background part (the listener below). -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Opens the app/site a kept notification came from, then disappears. -->
+        <activity
+            android:name=".OpenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- The keeper itself. Android binds it as long as notification access is granted. -->
+        <service
+            android:name=".KeeperListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".GuardJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- Gmail helper (accessibility): after a tap on a Gmail notification, opens that email in the
+             web Gmail; for Reply / Delete / Mark as read, picks that item in the web Gmail's right-click
+             menu for the email. Clears the notification once the email is opened there. Only
+             Chrome/Gmail events reach it (res/xml/web_gmail_helper.xml). -->
+        <service
+            android:name=".WebGmailHelper"
+            android:exported="true"
+            android:label="@string/helper_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/web_gmail_helper" />
+        </service>
+
+        <!-- Background buttons on Gmail Go's other (non-email) notifications: runs Gmail Go's own button. -->
+        <receiver
+            android:name=".ActionReceiver"
+            android:exported="false" />
+
+        <!-- Mark-as-read button: emits a command on logcat for the ghost daemon (instant background). -->
+        <receiver
+            android:name=".GhostReceiver"
+            android:exported="false" />
+
+        <!-- adb-only test trigger for the Gmail helper (DUMP permission: shell has it, apps don't). -->
+        <receiver
+            android:name=".DebugReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

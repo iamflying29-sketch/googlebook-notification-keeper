@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon: white bell on a round blue badge, with a small pin. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF1A73E8"
+        android:pathData="M24,2a22,22 0,1 1,0,44a22,22 0,1 1,0,-44z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,37c1.65,0 3,-1.35 3,-3h-6c0,1.65 1.35,3 3,3zM33,28v-7.5c0,-4.6 -2.46,-8.46 -6.75,-9.48V10c0,-1.25 -1,-2.25 -2.25,-2.25s-2.25,1 -2.25,2.25v1.02C17.45,12.04 15,15.88 15,20.5V28l-3,3v1.5h24V31l-3,-3z" />
+    <path
+        android:fillColor="#FFFBBC04"
+        android:pathData="M35,9a4,4 0,1 1,0,8a4,4 0,1 1,0,-8z" />
+</vector>
