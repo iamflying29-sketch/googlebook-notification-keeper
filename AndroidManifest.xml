@@ -5,6 +5,14 @@
     <!-- No INTERNET permission: this app never sends anything anywhere. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Gmail Go's unread counts (its public provider, the one launcher badges use). This is how the
+         Keeper notices that a mail was read on another device. Declared below, so it is granted on install. -->
+    <!-- On this device neither Gmail registers this permission with the system (both are installed for a
+         secondary user only), so nobody could ever hold it. Defining it here makes the Keeper its owner
+         and, at normal level, grants it to the Keeper on install. -->
+    <permission android:name="com.google.android.gm.permission.READ_CONTENT_PROVIDER"
+        android:protectionLevel="normal" />
+    <uses-permission android:name="com.google.android.gm.permission.READ_CONTENT_PROVIDER" />
 
     <!-- Package visibility: Gmail (to tell the full app from the web version) and the apps a kept
          notification opens when tapped. -->
@@ -65,6 +73,7 @@
             android:name=".GuardJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
 
         <!-- Gmail helper (accessibility): after a tap on a Gmail notification, opens that email in the
              web Gmail; for Reply / Delete / Mark as read, picks that item in the web Gmail's right-click

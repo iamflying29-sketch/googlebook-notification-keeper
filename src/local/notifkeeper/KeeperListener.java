@@ -18,6 +18,7 @@ import android.util.Log;
  * shown as copies linked to the web Gmail (GmailMirror). It does no polling and holds no wake locks.
  */
 public class KeeperListener extends NotificationListenerService {
+    static volatile KeeperListener current;
     private BroadcastReceiver packageReceiver;
 
     @Override
@@ -28,6 +29,7 @@ public class KeeperListener extends NotificationListenerService {
         SettingsGuard.sync(this);
         try {
             GmailMirror.reloadLive(this);
+            GmailMirror.reloadTracking(this);
             GmailMirror.mirrorExisting(this);
         } catch (RuntimeException e) {
             Log.w(Keeper.TAG, "gmail mirror: catching up failed", e);
@@ -51,6 +53,7 @@ public class KeeperListener extends NotificationListenerService {
             f.addDataScheme("package");
             registerReceiver(packageReceiver, f, Context.RECEIVER_EXPORTED);
         }
+        current = this;
         Log.i(Keeper.TAG, "listener connected");
     }
 
@@ -127,6 +130,7 @@ public class KeeperListener extends NotificationListenerService {
     public void onNotificationRemoved(StatusBarNotification sbn, RankingMap rankingMap, int reason) {
         try {
             if (getPackageName().equals(sbn.getPackageName())) GmailMirror.onCopyRemoved(this, sbn);
+            if (Keeper.GMAIL_GO.equals(sbn.getPackageName())) GmailMirror.onGoNotificationRemoved(this, sbn, reason);
             if (Keeper.shouldKeep(this, sbn, reason)) Keeper.keep(this, sbn);
         } catch (RuntimeException e) {
             // Never let one odd notification take the keeper down.

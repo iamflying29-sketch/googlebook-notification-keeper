@@ -54,6 +54,13 @@ final class GmailMirror {
     /** Android allows 50 notifications per app; leave room for kept copies, summaries and alerts. */
     private static final int MAX_MIRRORED = 25;
     private static final long SUMMARY_WAIT_MS = 1500;
+    private static final long STALE_REPOST_MS = 10 * 60 * 1000L;
+    /** Hidden Gmail Go notifications are snoozed this long (re-hidden if they ever come back). */
+    private static final long HIDE_MS = 12 * 60 * 60 * 1000L;
+    /** A probe re-snoozes hidden notifications this briefly; the unread ones come back, read ones do not. */
+    private static final long PROBE_MS = 1200;
+    private static final long PROBE_SETTLE_MS = 3000;
+    private static volatile long lastProbeAt;
     private static final String MAIL_CHANNEL = "^nc_1_mail_";
     private static final String ACCOUNT_GROUP = "^ncg_1_account_";
 
@@ -66,6 +73,162 @@ final class GmailMirror {
     private static final Map<String, String> shown = new HashMap<>();
     /** Tags of our Gmail copies currently in the tray (lets the web helper skip work when there are none). */
     private static final Set<String> live = new HashSet<>();
+    /** A Gmail Go notification we mirrored and hid: our copy's tag, its account, when it arrived. */
+    static final class Tracked {
+        final String tag;
+        final String account;
+        final long postedAt;
+        /** Gmail labels whose unread count rose when this mail arrived: its signature (see GoCounts). */
+        final Set<String> labels;
+        Tracked(String tag, String account, long postedAt, Set<String> labels) {
+            this.tag = tag; this.account = account; this.postedAt = postedAt; this.labels = labels;
+        }
+    }
+    /** Gmail Go message key -> our copy, so we can clear the copy once Gmail Go's counts say it was read. */
+    private static final Map<String, Tracked> tracked = new HashMap<>();
+
+    /**
+     * Hides Gmail Go's own notification without dismissing it: a long snooze. Android keeps the
+     * record (updated in place if Gmail Go changes it, flagged if Gmail Go cancels it) and never shows
+     * it. Cancelling instead would fire Gmail Go's dismiss intent and lose the read signal for good.
+     */
+    private static void hideGo(NotificationListenerService s, StatusBarNotification sbn) {
+        try {
+            s.snoozeNotification(sbn.getKey(), HIDE_MS);
+            Log.i(Keeper.TAG, "gmail mirror: hid Gmail Go's notification " + sbn.getId()
+                    + ((sbn.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0 ? " (header)" : ""));
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "gmail mirror: could not hide Gmail Go's notification", e);
+        }
+    }
+
+    /**
+     * The read test. Android flags a snoozed notification that its app cancelled but keeps it listed,
+     * so presence tells nothing. Re-snoozing every hidden notification of the account for about a
+     * second does: the ones still unread come back (and are hidden again at once, before they can be
+     * seen), the ones Gmail Go cancelled because they were read never come back. After a short settle
+     * time, any tracked mail missing from both lists was read, and its copy is cleared.
+     */
+    static void probe(NotificationListenerService s, String account) {
+        long now = System.currentTimeMillis();
+        if (now - lastProbeAt < PROBE_MS + PROBE_SETTLE_MS) return; // one at a time
+        lastProbeAt = now;
+        List<String> keys = new ArrayList<>();
+        try {
+            StatusBarNotification[] snoozed = s.getSnoozedNotifications();
+            if (snoozed != null) {
+                for (StatusBarNotification x : snoozed) {
+                    if (!Keeper.GMAIL_GO.equals(x.getPackageName())) continue;
+                    String a = accountOf(x.getNotification(), null);
+                    if (account == null || a == null || account.equals(a)) keys.add(x.getKey());
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "gmail mirror: probe could not list hidden notifications", e);
+            return;
+        }
+        if (keys.isEmpty()) return;
+        Log.i(Keeper.TAG, "gmail mirror: probing " + keys.size() + " hidden Gmail Go notification(s) for " + account);
+        for (String k : keys) {
+            try {
+                s.snoozeNotification(k, PROBE_MS);
+            } catch (RuntimeException e) {
+                Log.w(Keeper.TAG, "gmail mirror: probe re-snooze failed for " + k, e);
+            }
+        }
+        main.postDelayed(() -> settleProbe(s, account, keys), PROBE_MS + PROBE_SETTLE_MS);
+    }
+
+    private static void settleProbe(NotificationListenerService s, String account, List<String> probed) {
+        Set<String> present = new HashSet<>();
+        try {
+            for (StatusBarNotification x : s.getActiveNotifications()) present.add(x.getKey());
+            StatusBarNotification[] snoozed = s.getSnoozedNotifications();
+            if (snoozed != null) for (StatusBarNotification x : snoozed) present.add(x.getKey());
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "gmail mirror: probe settle failed", e);
+            return;
+        }
+        List<Tracked> read = new ArrayList<>();
+        int back = 0;
+        synchronized (LOCK) {
+            for (String k : probed) {
+                if (present.contains(k)) { back++; continue; }
+                Tracked t = tracked.remove(k);
+                if (t != null) read.add(t);
+                else Log.i(Keeper.TAG, "gmail mirror: probe: hidden notification " + k.substring(k.indexOf('|') + 1, Math.min(k.length(), k.indexOf('|') + 40)) + " is gone (header or untracked)");
+            }
+        }
+        long now = System.currentTimeMillis();
+        List<Long> latencies = new ArrayList<>();
+        for (Tracked t : read) {
+            removeCopy(s, t.tag);
+            latencies.add(now - t.postedAt);
+            Log.i(Keeper.TAG, "gmail mirror: READ: Gmail Go dropped its hidden notification for copy "
+                    + t.tag.substring(0, Math.min(40, t.tag.length())) + " (" + (now - t.postedAt) / 1000 + " s after arrival)");
+        }
+        Log.i(Keeper.TAG, "gmail mirror: probe done: " + back + " came back (unread), " + read.size() + " read");
+        if (!read.isEmpty()) {
+            main.postDelayed(() -> fixSummary(s, account), 400);
+            ReadSense.learned(s, latencies);
+        }
+    }
+
+    /** Anything we still wait on? (ReadSense stops when there is nothing.) */
+    static boolean watching() {
+        synchronized (LOCK) {
+            return !tracked.isEmpty();
+        }
+    }
+
+    /** Accounts that have copies waiting for a read. */
+    static Set<String> watchedAccounts() {
+        Set<String> out = new HashSet<>();
+        synchronized (LOCK) {
+            for (Tracked t : tracked.values()) if (t.account != null) out.add(t.account);
+        }
+        return out;
+    }
+
+    /**
+     * After a restart: rebuild what we are watching from our copies still in the tray, and drop any
+     * Gmail Go notifications left snoozed by older builds (they would come back visible otherwise).
+     */
+    static void reloadTracking(NotificationListenerService s) {
+        synchronized (LOCK) {
+            for (StatusBarNotification x : s.getSystemService(NotificationManager.class).getActiveNotifications()) {
+                String tag = x.getTag();
+                if (tag == null || !tag.startsWith(CHILD_PREFIX) || tag.startsWith(SUMMARY_PREFIX)) continue;
+                String goKey = tag.substring(CHILD_PREFIX.length());
+                if (tracked.containsKey(goKey)) continue;
+                CharSequence sub = x.getNotification().extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
+                String account = sub != null && sub.toString().contains("@") ? sub.toString() : null;
+                Set<String> sig = new HashSet<>();
+                sig.add(GoCounts.INBOX);
+                tracked.put(goKey, new Tracked(tag, account, x.getPostTime(), sig));
+            }
+        }
+        Set<String> accounts = watchedAccounts();
+        int n;
+        synchronized (LOCK) {
+            n = tracked.size();
+        }
+        Log.i(Keeper.TAG, "gmail mirror: watching " + n + " copies for " + accounts.size() + " account(s); counts "
+                + (GoCounts.allowed(s) ? "allowed" : "NOT allowed yet"));
+        for (String a : accounts) {
+            GoCounts.snapshot(s, a);
+            GoCounts.observe(s, a);
+        }
+        // Headers left behind without copies (for example after a crash) go away.
+        for (StatusBarNotification x : s.getSystemService(NotificationManager.class).getActiveNotifications()) {
+            String tag = x.getTag();
+            if (tag != null && tag.startsWith(SUMMARY_PREFIX + CHILD_PREFIX)) {
+                fixSummary(s, tag.substring((SUMMARY_PREFIX + CHILD_PREFIX).length()));
+            }
+        }
+        ReadSense.watch(s);
+    }
+
     private static final Handler main = new Handler(Looper.getMainLooper());
     private static Icon gmailIcon;
 
@@ -115,15 +278,32 @@ final class GmailMirror {
             return;
         }
         if (all == null) return;
+        int n = 0;
         for (StatusBarNotification sbn : all) {
-            if (Keeper.GMAIL_GO.equals(sbn.getPackageName())) onPosted(s, sbn, null, false);
+            if (Keeper.GMAIL_GO.equals(sbn.getPackageName())) { onPosted(s, sbn, null, false); n++; }
         }
+        Log.i(Keeper.TAG, "gmail mirror: caught up on " + n + " Gmail Go notification(s)");
     }
 
     static void onPosted(NotificationListenerService s, StatusBarNotification sbn,
             NotificationListenerService.RankingMap ranking, boolean mayAlert) {
         if (!engineOk(s)) return;
+        boolean known;
+        synchronized (LOCK) {
+            known = tracked.containsKey(sbn.getKey());
+        }
+        if (known) {
+            hideGo(s, sbn); // came back from a snooze (probe or expiry): still unread, hide it again
+            return;
+        }
         Notification n = sbn.getNotification();
+        if (mayAlert && System.currentTimeMillis() - sbn.getPostTime() > STALE_REPOST_MS) {
+            // A live post that is old: a notification an earlier build snoozed is coming back. It was
+            // shown (and read or dismissed) long ago, so remove it quietly instead of alerting again.
+            Log.i(Keeper.TAG, "gmail mirror: removed a stale Gmail Go notification that came back from snooze");
+            hideGo(s, sbn);
+            return;
+        }
         if ((n.flags & (Notification.FLAG_ONGOING_EVENT | Notification.FLAG_FOREGROUND_SERVICE)) != 0) {
             return; // e.g. "Sending…": Android doesn't let us remove those, so leave Gmail Go's own
         }
@@ -132,6 +312,16 @@ final class GmailMirror {
             // after it, and we build our own summary. Only if no messages follow (Gmail sometimes
             // posts just a summary) do we show the summary itself.
             final String key = sbn.getKey();
+            boolean copies;
+            try {
+                copies = hasCopiesFor(s, sbn);
+            } catch (RuntimeException e) {
+                copies = false;
+            }
+            if (copies) {
+                hideGo(s, sbn); // its mails already have copies (Android re-posts the header with each new child)
+                return;
+            }
             main.postDelayed(() -> summaryCheck(s, key), SUMMARY_WAIT_MS);
             return;
         }
@@ -152,7 +342,7 @@ final class GmailMirror {
             }
             if (summary == null) return; // already gone
             if (children || hasCopiesFor(s, summary)) {
-                s.cancelNotification(key);
+                hideGo(s, summary); // its mails have copies (or are about to): Gmail Go's header goes
             } else {
                 mirror(s, summary, null, true);
             }
@@ -270,12 +460,15 @@ final class GmailMirror {
         synchronized (LOCK) {
             live.add(tag);
         }
-        // Only now that our copy is up: remove Gmail Go's original (silent anyway).
-        try {
-            s.cancelNotification(sbn.getKey());
-        } catch (RuntimeException e) {
-            Log.w(Keeper.TAG, "gmail mirror: could not remove Gmail Go's original", e);
+        // Remember this mail with its label fingerprint (which counts rose when it arrived), so a later
+        // drop of exactly those counts tells us this one was read. Then remove Gmail Go's original.
+        Set<String> signature = GoCounts.arrived(s, account);
+        synchronized (LOCK) {
+            tracked.put(sbn.getKey(), new Tracked(tag, account, System.currentTimeMillis(), signature));
         }
+        GoCounts.observe(s, account);
+        ReadSense.noteNewMail(s);
+        hideGo(s, sbn);
         refreshSummary(s, group, channelId, account);
         trim(s);
         if (alert) {
@@ -311,12 +504,63 @@ final class GmailMirror {
         if (group != null) refreshSummary(c, group, channel, account == null ? null : account.toString());
     }
 
+    /**
+     * Gmail Go removed one of its own notifications. Not a read signal: we remove Gmail Go's
+     * notifications ourselves, and Gmail Go then cancels its own group header right away (that used
+     * to be mistaken for "all mails read" and wiped a fresh copy a millisecond after it appeared).
+     * Reads come from GoCounts now.
+     */
+    static void onGoNotificationRemoved(Context c, StatusBarNotification sbn, int reason) {
+        if (!Keeper.GMAIL_GO.equals(sbn.getPackageName())) return;
+        if (reason != 10 && Log.isLoggable(Keeper.TAG, Log.DEBUG)) {
+            Log.d(Keeper.TAG, "gmail mirror: Gmail Go removed a notification, reason=" + reason);
+        }
+    }
+
+    /** Make the account's group header match its copies: gone when none are left, else up to date. */
+    private static void fixSummary(Context c, String account) {
+        if (account == null) return;
+        String group = CHILD_PREFIX + account;
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        String channel = null;
+        for (StatusBarNotification x : nm.getActiveNotifications()) {
+            if (x.getTag() != null && x.getTag().startsWith(CHILD_PREFIX) && !x.getTag().startsWith(SUMMARY_PREFIX)
+                    && group.equals(x.getNotification().getGroup())) {
+                channel = x.getNotification().getChannelId();
+            }
+        }
+        if (channel == null) {
+            nm.cancel(SUMMARY_PREFIX + group, ID);
+        } else {
+            refreshSummary(c, group, channel, account);
+        }
+    }
+
+    /** Remove all our Gmail copies for one account (used when Gmail Go clears the whole group). */
+    private static void clearAccountCopies(Context c, String account) {
+        String group = CHILD_PREFIX + account;
+        List<String> tags = new ArrayList<>();
+        for (StatusBarNotification x : c.getSystemService(NotificationManager.class).getActiveNotifications()) {
+            if (x.getTag() != null && x.getTag().startsWith(CHILD_PREFIX)
+                    && group.equals(x.getNotification().getGroup())) {
+                tags.add(x.getTag());
+            }
+        }
+        for (String t : tags) removeCopy(c, t);
+    }
+
     /** One of our copies went away (tapped, swiped, archived): keep its group's summary right. */
     static void onCopyRemoved(Context c, StatusBarNotification sbn) {
         if (sbn.getTag() == null || !sbn.getTag().startsWith(CHILD_PREFIX)) return;
+        String goKey = null;
         synchronized (LOCK) {
             live.remove(sbn.getTag());
+            for (Map.Entry<String, Tracked> e : tracked.entrySet()) {
+                if (sbn.getTag().equals(e.getValue().tag)) { goKey = e.getKey(); break; }
+            }
+            if (goKey != null) tracked.remove(goKey);
         }
+
         Notification n = sbn.getNotification();
         CharSequence account = n.extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
         if (n.getGroup() != null) {

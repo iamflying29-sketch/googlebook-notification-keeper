@@ -431,8 +431,14 @@ public class WebGmailHelper extends AccessibilityService {
         return sent;
     }
 
+    /**
+     * Is it safe to tap the web Gmail at this point? Yes when the point is inside the web Gmail
+     * window and no other window sits on top of it there. The web Gmail does not have to be the
+     * focused window: right after you tap a notification it is on screen but not yet focused, and an
+     * earlier focus check made the helper wait until you clicked the inbox yourself. The cover test
+     * below is what keeps the tap from ever landing on another app.
+     */
     private boolean uncovered(AccessibilityWindowInfo w, int x, int y) {
-        if (!w.isActive()) return false;
         Rect r = new Rect();
         w.getBoundsInScreen(r);
         if (!r.contains(x, y)) return false;

@@ -19,8 +19,9 @@ Notification Center until I tap it or clear it. The copy shows the same title an
 picture if it had one, and the name of the web app or website it came from. Tapping the copy opens
 that web app, or the website in Chrome. Notifications that I swipe away or tap myself are left alone.
 
-The Keeper has no internet permission, does no polling, holds no wake locks and stores no message
-content in its files. A small status window shows whether everything is set up and has a "Run test"
+The Keeper has no internet permission, holds no wake locks and stores no message content in its
+files. It does no polling while idle; with the Gmail features, it checks Gmail Go's unread counts
+every few seconds only while a Gmail copy is waiting to be read. A small status window shows whether everything is set up and has a "Run test"
 button that proves the keeping works.
 
 It was built first for the Gmail web app, and for Gmail it does more. It turns each email alert into
@@ -105,10 +106,27 @@ Inside this app, the Gmail features are:
   pops up and stays, grouped by account under its own categories, with the Keeper's own "N new
   messages" summary. Email notifications get three buttons: Reply, Delete and Mark as read. Tapping
   opens that account's inbox in the Gmail web app, and with the Gmail helper on, it opens the email
-  itself. Gmail Go's original is removed only after the copy is posted. When the Gmail web app is open and posts its own new-mail alert as well, the Keeper
-  removes that duplicate, but only once a Gmail Go copy for that account is actually showing, and it
-  leaves the web alert alone if no copy appears within 2.5 seconds. The Keeper shows at most 25
-  Gmail copies.
+  itself. Gmail Go's original is hidden only after the copy is posted, and it is hidden by a 12-hour
+  snooze rather than cancelled: a cancel would tell Gmail Go that I dismissed the notification, and
+  Gmail Go would stop tracking that email. Snoozed, it stays out of sight while Gmail Go keeps
+  managing it, which is what makes the read detection below possible. If a hidden notification ever
+  comes back, the Keeper hides it again at once. When the Gmail web app is open and posts its own
+  new-mail alert as well, the Keeper removes that duplicate, but only once a Gmail Go copy for that
+  account is actually showing, and it leaves the web alert alone if no copy appears within 2.5
+  seconds. The Keeper shows at most 25 Gmail copies.
+* **Read detection** (`GoCounts.java`, `ReadSense.java` and `GmailMirror.probe()`). When I read an
+  email on another device, its copy clears by itself. Gmail Go does not announce reads, so the Keeper
+  combines two signals. Gmail Go's public content provider, the one launchers use for badge numbers,
+  gives the unread count of every label, and the Keeper watches it; a drop means some mail was read.
+  To learn which one, the Keeper re-snoozes the account's hidden Gmail Go notifications for about one
+  second. Android brings back the ones Gmail Go still considers unread, and the Keeper hides them
+  again before they can be seen, while a notification that Gmail Go cancelled because its email was
+  read is dropped and never comes back. Whatever did not come back was read, and that copy is
+  cleared. The check runs every 2.5 seconds inside a window after a new mail, every 15 seconds after
+  it, and not at all when no Gmail copy is waiting; the length of that window is learned from how
+  long after arrival my mails usually get read. In my tests, reading one of two unread emails on a
+  tablet cleared exactly that one copy, between 20 seconds and a few minutes after the read,
+  depending on when Gmail Go synced.
 * **Gmail helper** (`WebGmailHelper.java`). An accessibility service, off by default, that carries
   out a tap, Reply or Delete in the Gmail web app window. It finds the email by its subject and
   arrival time, and it only touches the screen when the Gmail web app is the active window and
@@ -130,7 +148,9 @@ Inside this app, the Gmail features are:
   the Gmail setup is not in use, and the Keeper does not post this alert. A package receiver notices right away when Gmail or Gmail Go is installed, updated,
   changed or removed.
 * **Test trigger** (`DebugReceiver.java`). A receiver that only adb can call, for testing the Gmail
-  helper. Its usage is described at the top of the file.
+  helper. Its usage is described at the top of the file. It also has adb-only probes for the read
+  detection: logging Gmail Go's unread counts, listing the hidden Gmail Go notifications, and running
+  the one-second probe by hand.
 
 The mirror and its buttons only work when Gmail Go is installed and allowed to post notifications,
 the settings guard only works with the companion link, and the Gmail helper only works if you turn it
@@ -149,8 +169,9 @@ run for everyone, as described in [Limitations and known issues](#limitations-an
   * Permission to post notifications is required.
   * A companion link is optional and only needed for the Gmail settings guard.
   * Accessibility access for the Gmail helper is optional and only needed for the Gmail setup.
-* **Permissions in the manifest:** `POST_NOTIFICATIONS` and `RECEIVE_BOOT_COMPLETED`. There is no
-  `INTERNET` permission.
+* **Permissions in the manifest:** `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED` and Gmail's own
+  `com.google.android.gm.permission.READ_CONTENT_PROVIDER` for the unread counts (see
+  [Safety and privacy notes](#safety-and-privacy-notes)). There is no `INTERNET` permission.
 * **Tools:** the Linux Terminal with adb connected to the Googlebook over Wireless debugging, and,
   to build the APK, a JDK, Python 3, and the Android SDK build tools 35.0.0 with the android-35
   platform. This repository contains source code only, so you build the APK yourself.
@@ -303,6 +324,10 @@ pop up again, because the original already alerted you. Tap a copy to open its s
 away or clear it like any other notification. Swiping or tapping an original notification yourself
 never creates a copy.
 
+With the Gmail features, a Gmail copy also clears by itself when you read that email on another
+device. In my tests this took between 20 seconds and a few minutes after the read, depending on when
+Gmail Go synced.
+
 ### The status window
 
 Open **Notification Keeper** from the launcher. The window refreshes itself every 2 seconds while it
@@ -395,7 +420,8 @@ adb shell pm uninstall --user <USER_ID> local.notifkeeper
 
 Uninstalling removes the app, its saved settings files and its counters. It does not undo changes the
 settings guard made to other apps: Gmail categories it set to pop on screen and Gmail Go categories it
-set to silent stay that way until you change them in Settings.
+set to silent stay that way until you change them in Settings. Gmail Go notifications that the Keeper
+had hidden come back on their own when their snooze ends, within 12 hours.
 
 On the Linux side, you can delete the `~/googlebook-notification-keeper` folder when you no longer
 need it. Keep `keystore.jks` if you may want to install an update of your build later.
@@ -420,6 +446,21 @@ open the status window and press **Fix**, or run the `allow_listener` command ag
 This alert only appears when Gmail Go is installed but cannot post notifications, for example after
 the Play Store updated it to a newer build. Follow the Gmail setup guide to put the 2021 build back. If
 you do not use the Gmail setup, uninstall Gmail Go and the alert will not come back.
+
+**A new email never produced a notification.**
+Gmail Go posts no notification for mail that arrives while its own inbox window is open on the
+screen. Close the Gmail Go window. The Keeper only needs Gmail Go installed, not open.
+
+**A Gmail copy did not clear after I read the email on another device.**
+Gmail Go has to sync the read first, which can take a few minutes. Then look at the log: a line
+"read sense: counts dropped" shows that the Keeper noticed, "probing" shows the check, and "READ:"
+shows the copy being cleared. If the log says the Keeper is "not allowed to read Gmail Go's counts",
+your Gmail app registered the permission with the system itself (mine did not, see
+[Safety and privacy notes](#safety-and-privacy-notes)), so grant it once:
+
+```bash
+adb shell pm grant --user <USER_ID> local.notifkeeper com.google.android.gm.permission.READ_CONTENT_PROVIDER
+```
 
 **Copies don't appear for a particular website.**
 A copy is made only when the site itself withdraws its notification. If the original stays in the
@@ -457,9 +498,19 @@ colons.
 
 * **No network access.** The manifest has no `INTERNET` permission, so the app cannot send anything
   anywhere.
-* **No background load.** It does no polling, holds no wake locks and runs no foreground service.
-  Android binds the listener, and the guard job runs every 6 hours with only quick package and
-  settings lookups.
+* **Little background load.** It holds no wake locks and runs no foreground service. Android binds
+  the listener, and the guard job runs every 6 hours with only quick package and settings lookups.
+  The only repeated work is the Gmail read check: while a Gmail copy is waiting to be read, the Keeper
+  reads Gmail Go's unread counts every 2.5 seconds inside the learned window after a new mail and
+  every 15 seconds after it, and it stops completely when no copy is waiting.
+* **Gmail Go's unread counts.** With the Gmail features, the Keeper reads Gmail Go's public content
+  provider, the same one launchers use for badge numbers. It returns one row per label with the
+  number of unread conversations, never subjects, senders or message text. Reading it needs Gmail's
+  own permission `com.google.android.gm.permission.READ_CONTENT_PROVIDER`. On my Googlebook neither
+  Gmail app had registered that permission with the system, so no app could have been granted it;
+  the Keeper therefore declares the permission itself at the normal level and receives it on
+  install. On a device where Gmail does register it, Android keeps Gmail's definition, and the
+  permission then needs the one-time adb grant shown in Troubleshooting. I have not tested that case.
 * **What notification access means.** Like every notification listener, the Keeper is shown every
   notification on the device. It acts only on web notifications that their own site withdraws and,
   with the Gmail features, on notifications from Gmail Go and the Gmail web app. Everything else is
@@ -467,12 +518,15 @@ colons.
 * **What it stores.** In its private app storage it keeps counters, the time and source (the app name
   and website host) of the last kept copy, and, with the companion link, the saved notification
   categories of Gmail and Gmail Go. Those saved categories include their names and identifiers, and
-  Gmail Go's identifiers contain your account addresses. It stores no notification titles or texts in
-  its files. The app sets `allowBackup` to false, so Android backup does not copy its data.
+  Gmail Go's identifiers contain your account addresses. The read detection stores a short list of
+  numbers: how long after arrival the last few emails were read. It stores no notification titles or
+  texts in its files. The app sets `allowBackup` to false, so Android backup does not copy its data.
 * **What it writes to the system log.** It logs the source of each kept copy. With the Gmail features, the
   Mark as read button writes the account, the sender's address, the subject and the arrival time
   under the tag `GmailGhostCmd`, because that is how the Linux Terminal service receives the command,
-  and each new email pop-up writes the account address under the same tag. On Android, ordinary apps
+  and each new email pop-up writes the account address under the same tag. The read detection logs
+  the account address, the names of the labels whose counts changed and the identifier of the copy it
+  cleared, never a subject or sender. On Android, ordinary apps
   cannot read other apps' log messages. The system, adb, and apps that you give log access through
   adb can.
 * **The companion link** gives the Keeper the right to read and change any app's notification
@@ -506,6 +560,15 @@ colons.
 * **Parts of the status window are about Gmail** even when you only use the generic keeper.
 * **Rich features exist only for Gmail.** Action buttons, the settings guard and mirroring are written
   for Gmail and Gmail Go. See the next section.
+* **Read detection waits for Gmail Go.** A copy clears only after Gmail Go has synced the read, which
+  in my tests took between 20 seconds and a few minutes.
+* **Gmail Go does not notify while its own inbox window is open**, so no copy appears for mail that
+  arrives then. Keep Gmail Go installed but closed.
+* **Hidden Gmail Go notifications are snoozed 12 hours at a time.** When a snooze ends, Android
+  re-posts the notification and the Keeper hides it again at once. I have not seen it flicker, but
+  the re-post does happen. Uninstalling the Keeper lets any hidden ones reappear when their snooze ends.
+* **The unread-count permission** is declared by the Keeper itself, which only works because Gmail
+  had not registered it on my device. See Safety and privacy notes.
 * **The app is in English only**, and I have tested it only on my Googlebook.
 * **There is no prebuilt APK.** You build it yourself with `build.sh`.
 
@@ -526,7 +589,7 @@ The whole keeping path is generic and needs no changes for a new web app:
   (line 46) or from a `Web:` group.
 * `Keeper.shouldKeep()` (line 89) accepts only removals with reason 8 or 9.
 * `Keeper.keep()` (line 113) builds the copy, and `OpenActivity` opens the source when it is tapped.
-* `KeeperListener.onNotificationRemoved()` (`KeeperListener.java`, line 127) calls both for every
+* `KeeperListener.onNotificationRemoved()` (`KeeperListener.java`, line 130) calls both for every
   removed notification, from any package.
 
 ### Where the Gmail-specific code lives
@@ -534,14 +597,15 @@ The whole keeping path is generic and needs no changes for a new web app:
 | File | Gmail-specific code |
 | --- | --- |
 | `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 106 and 108). `gmailState()` (line 234) and the Gmail half of `runGuard()` (line 266). `MAX_KEPT` (line 43) shares the 50-notification budget with the Gmail copies. |
-| `KeeperListener.java` | `onNotificationPosted()` (line 112) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 41) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 84) passes Gmail Go's category changes to `GhostReceiver`. |
-| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 57 and 58), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 61), the engine check `engine()` (line 79), the copy builder `mirror()` (line 174), the duplicate removal `onWebGmailPosted()` (line 430), `openWebGmail()` (line 544), `inboxUrl()` (line 566), `accountOf()` (line 591) and `MAX_MIRRORED` (line 55). |
+| `KeeperListener.java` | `onNotificationPosted()` (line 115) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 39) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 87) passes Gmail Go's category changes to `GhostReceiver`. |
+| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 64 and 65), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 68), the engine check `engine()` (line 242), the hiding `hideGo()` (line 95) and the read probe `probe()` (line 112), the copy builder `mirror()` (line 364), the duplicate removal `onWebGmailPosted()` (line 674), `openWebGmail()` (line 788), `inboxUrl()` (line 810), `accountOf()` (line 835) and `MAX_MIRRORED` (line 55). |
+| `GoCounts.java`, `ReadSense.java` | The read detection: Gmail Go's provider authority and label names, the count snapshots, and the timing of the checks. |
 | `SettingsGuard.java` | The guarded packages `PKGS` (line 43), their file names in `file()` (line 54) and display names in `label()` (line 58), my "pop on screen" rule in `newCategoryRule()` (line 262), the Gmail Go silencing in `silenceOriginals()` (line 205), and `summary()` (line 360), which reads only Gmail's file. |
 | `WebGmailHelper.java` and `res/xml/web_gmail_helper.xml` | The accessibility helper. It reads Gmail's web page structure, and the XML limits it to the packages `com.android.chrome` and `com.google.android.gm`. |
 | `GhostReceiver.java`, `ActionReceiver.java`, `DebugReceiver.java` | Mark as read, Gmail Go's background buttons, and the adb test trigger. |
 | `OpenActivity.java` | `isBrowser()` (line 70) decides whether a source is Chrome. The Gmail branches use the `url` and `kind` extras. |
 | `MainActivity.java` | `refresh()` shows the Gmail line (line 136) and the settings guard line (line 150). |
-| `AndroidManifest.xml` | The `<queries>` block (line 11) names Gmail and Gmail Go, so the app may look them up. |
+| `AndroidManifest.xml` | The `<queries>` block (line 19) names Gmail and Gmail Go, so the app may look them up, and the `<permission>` element (line 13) declares Gmail's unread-count permission. |
 | `res/values/strings.xml` | All Gmail texts and alerts. |
 
 ### What you would write to add another web app
@@ -562,7 +626,7 @@ The whole keeping path is generic and needs no changes for a new web app:
    its own channel and group, decide what a tap opens (Gmail builds a web address with `inboxUrl()`
    and sends it to the web app's own screen in `openWebGmail()`, which picks the web app's
    `TwaActivity` so that Android does not ask which app to use), decide what each button does, and
-   remove the original only after the copy is posted. Keep the total of `MAX_KEPT`, your own limit,
+   hide the original only after the copy is posted (the Keeper snoozes Gmail Go's). Keep the total of `MAX_KEPT`, your own limit,
    the Gmail limit, summaries and alerts under Android's 50 notifications per app.
 5. **Guard its settings, if you want that.** Add the package to `SettingsGuard.PKGS`, give it a file
    name in `file()` and a display name in `label()`, and review `newCategoryRule()`, which applies my
@@ -592,7 +656,9 @@ welcome.
 | `src/local/notifkeeper/MainActivity.java` | The status window |
 | `src/local/notifkeeper/GuardJob.java` | The 6-hour check |
 | `src/local/notifkeeper/BootReceiver.java` | Checks after a restart or an app update |
-| `src/local/notifkeeper/GmailMirror.java` | Gmail: shows Gmail Go's notifications as copies linked to the Gmail web app |
+| `src/local/notifkeeper/GmailMirror.java` | Gmail: shows Gmail Go's notifications as copies linked to the Gmail web app, hides the originals and runs the read probe |
+| `src/local/notifkeeper/GoCounts.java` | Gmail: reads Gmail Go's unread counts and watches them for changes |
+| `src/local/notifkeeper/ReadSense.java` | Gmail: schedules the read checks and learns when to look |
 | `src/local/notifkeeper/WebGmailHelper.java` | Gmail: the optional accessibility helper |
 | `src/local/notifkeeper/GhostReceiver.java` | Gmail: the Mark as read command for the Linux Terminal service |
 | `src/local/notifkeeper/ActionReceiver.java` | Gmail: runs Gmail Go's own background buttons |
