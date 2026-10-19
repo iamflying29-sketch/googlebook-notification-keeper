@@ -122,8 +122,10 @@ Inside this app, the Gmail features are:
   second. Android brings back the ones Gmail Go still considers unread, and the Keeper hides them
   again before they can be seen, while a notification that Gmail Go cancelled because its email was
   read is dropped and never comes back. Whatever did not come back was read, and that copy is
-  cleared. The check runs every 2.5 seconds inside a window after a new mail, every 15 seconds after
-  it, and not at all when no Gmail copy is waiting; the length of that window is learned from how
+  cleared. The read check only ever hides Gmail Go's test notifications again, so it can never turn
+  one into a notification you see. The check runs every 2.5 seconds inside a window after a new mail,
+  every 15 seconds after it, and not at all when no Gmail copy is waiting; the length of that window
+  is learned from how
   long after arrival my mails usually get read. In my tests, reading one of two unread emails on a
   tablet cleared exactly that one copy, between 20 seconds and a few minutes after the read,
   depending on when Gmail Go synced.
@@ -323,6 +325,11 @@ in the Notification Center on the "Kept web notifications" category. Copies are 
 pop up again, because the original already alerted you. Tap a copy to open its source, or swipe it
 away or clear it like any other notification. Swiping or tapping an original notification yourself
 never creates a copy.
+
+With the Gmail features, swiping a Gmail copy away (or tapping it, or using Clear all) is remembered.
+That email will not notify you again on this device, even if Gmail Go tries to bring its notification
+back, and the choice is kept if the Keeper restarts. A later, genuinely new email from the same sender
+still notifies you, because it is a different notification.
 
 With the Gmail features, a Gmail copy also clears by itself when you read that email on another
 device. In my tests this took between 20 seconds and a few minutes after the read, depending on when

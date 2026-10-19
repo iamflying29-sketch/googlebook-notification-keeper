@@ -129,7 +129,7 @@ public class KeeperListener extends NotificationListenerService {
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn, RankingMap rankingMap, int reason) {
         try {
-            if (getPackageName().equals(sbn.getPackageName())) GmailMirror.onCopyRemoved(this, sbn);
+            if (getPackageName().equals(sbn.getPackageName())) GmailMirror.onCopyRemoved(this, sbn, reason);
             if (Keeper.GMAIL_GO.equals(sbn.getPackageName())) GmailMirror.onGoNotificationRemoved(this, sbn, reason);
             if (Keeper.shouldKeep(this, sbn, reason)) Keeper.keep(this, sbn);
         } catch (RuntimeException e) {

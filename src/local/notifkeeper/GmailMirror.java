@@ -86,6 +86,8 @@ final class GmailMirror {
     }
     /** Gmail Go message key -> our copy, so we can clear the copy once Gmail Go's counts say it was read. */
     private static final Map<String, Tracked> tracked = new HashMap<>();
+    /** Gmail Go keys a read probe is currently re-snoozing, so their re-posts are hidden, not mirrored. */
+    private static final Set<String> probing = new HashSet<>();
 
     /**
      * Hides Gmail Go's own notification without dismissing it: a long snooze. Android keeps the
@@ -129,6 +131,9 @@ final class GmailMirror {
         }
         if (keys.isEmpty()) return;
         Log.i(Keeper.TAG, "gmail mirror: probing " + keys.size() + " hidden Gmail Go notification(s) for " + account);
+        synchronized (LOCK) {
+            probing.addAll(keys);
+        }
         for (String k : keys) {
             try {
                 s.snoozeNotification(k, PROBE_MS);
@@ -171,6 +176,9 @@ final class GmailMirror {
         if (!read.isEmpty()) {
             main.postDelayed(() -> fixSummary(s, account), 400);
             ReadSense.learned(s, latencies);
+        }
+        synchronized (LOCK) {
+            probing.removeAll(probed);
         }
     }
 
@@ -288,6 +296,27 @@ final class GmailMirror {
     static void onPosted(NotificationListenerService s, StatusBarNotification sbn,
             NotificationListenerService.RankingMap ranking, boolean mayAlert) {
         if (!engineOk(s)) return;
+        if (isDismissed(s, sbn.getKey())) {
+            // You swiped this mail's notification away before. Gmail Go brought its own back (a probe,
+            // a snooze ending, or a reconnect). Remove it and never show our copy again.
+            try {
+                s.cancelNotification(sbn.getKey());
+            } catch (RuntimeException e) {
+                // snoozed right now: it will be removed when it next re-posts
+            }
+            Log.i(Keeper.TAG, "gmail mirror: a dismissed mail came back from Gmail Go; removed it, not re-showing");
+            return;
+        }
+        boolean beingProbed;
+        synchronized (LOCK) {
+            beingProbed = probing.contains(sbn.getKey());
+        }
+        if (beingProbed) {
+            // A read probe re-posted this hidden notification to test it. It came back, so it is still
+            // unread: hide it again. Never mirror it, because the probe is a check, not new mail.
+            hideGo(s, sbn);
+            return;
+        }
         boolean known;
         synchronized (LOCK) {
             known = tracked.containsKey(sbn.getKey());
@@ -343,6 +372,14 @@ final class GmailMirror {
             if (summary == null) return; // already gone
             if (children || hasCopiesFor(s, summary)) {
                 hideGo(s, summary); // its mails have copies (or are about to): Gmail Go's header goes
+            } else if (isDismissed(s, key) || System.currentTimeMillis() - summary.getPostTime() > STALE_REPOST_MS) {
+                // A leftover header of a group whose mails you dismissed or read, or an old one coming
+                // back from snooze. There is nothing to summarize, so remove it instead of a bare header.
+                try {
+                    s.cancelNotification(key);
+                } catch (RuntimeException e) {
+                    // already gone
+                }
             } else {
                 mirror(s, summary, null, true);
             }
@@ -550,22 +587,65 @@ final class GmailMirror {
     }
 
     /** One of our copies went away (tapped, swiped, archived): keep its group's summary right. */
-    static void onCopyRemoved(Context c, StatusBarNotification sbn) {
+    static void onCopyRemoved(Context c, StatusBarNotification sbn, int reason) {
         if (sbn.getTag() == null || !sbn.getTag().startsWith(CHILD_PREFIX)) return;
-        String goKey = null;
+        // A copy's tag is CHILD_PREFIX + the Gmail Go notification's key, so the key is the rest of it.
+        String goKey = sbn.getTag().substring(CHILD_PREFIX.length());
         synchronized (LOCK) {
             live.remove(sbn.getTag());
-            for (Map.Entry<String, Tracked> e : tracked.entrySet()) {
-                if (sbn.getTag().equals(e.getValue().tag)) { goKey = e.getKey(); break; }
-            }
-            if (goKey != null) tracked.remove(goKey);
+            tracked.remove(goKey);
         }
-
+        // reason 1 (tapped), 2 (swiped) and 3 (cleared all) mean you got rid of it on purpose, so it
+        // must not come back. reason 8/10/12 are our own removals (a read, or acting on a button), which
+        // are already handled. On a real dismissal we also remove Gmail Go's own copy in case it shows.
+        boolean youDismissed = reason == 1 || reason == 2 || reason == 3;
+        if (youDismissed) {
+            addDismissed(c, goKey);
+            if (c instanceof NotificationListenerService) {
+                try {
+                    ((NotificationListenerService) c).cancelNotification(goKey);
+                } catch (RuntimeException e) {
+                    // snoozed right now: onPosted removes it when it next re-posts
+                }
+            }
+            Log.i(Keeper.TAG, "gmail mirror: you dismissed a mail (reason " + reason + "); it will not come back");
+        }
         Notification n = sbn.getNotification();
         CharSequence account = n.extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
         if (n.getGroup() != null) {
             refreshSummary(c, n.getGroup(), n.getChannelId(), account == null ? null : account.toString());
         }
+    }
+
+    // ---- mails you dismissed on purpose, so they never come back (kept across restarts) ---------
+
+    private static final String PREF_DISMISSED = "dismissed_go_keys";
+    private static final int MAX_DISMISSED = 200;
+
+    /** Did you dismiss this Gmail Go notification yourself? Remembered in the app's settings file. */
+    static boolean isDismissed(Context c, String goKey) {
+        if (goKey == null) return false;
+        String s = Keeper.prefs(c).getString(PREF_DISMISSED, "");
+        if (s.isEmpty()) return false;
+        for (String k : s.split("\n")) {
+            if (k.equals(goKey)) return true;
+        }
+        return false;
+    }
+
+    /** Remember a dismissed notification, newest last, capped so the list can never grow without bound. */
+    private static synchronized void addDismissed(Context c, String goKey) {
+        SharedPreferences p = Keeper.prefs(c);
+        String s = p.getString(PREF_DISMISSED, "");
+        List<String> keys = new ArrayList<>();
+        if (!s.isEmpty()) {
+            for (String k : s.split("\n")) {
+                if (!k.equals(goKey)) keys.add(k);
+            }
+        }
+        keys.add(goKey);
+        while (keys.size() > MAX_DISMISSED) keys.remove(0);
+        p.edit().putString(PREF_DISMISSED, String.join("\n", keys)).apply();
     }
 
     static boolean hasCopies() {
