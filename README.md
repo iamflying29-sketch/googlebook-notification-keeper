@@ -132,7 +132,11 @@ Inside this app, the Gmail features are:
 * **Gmail helper** (`WebGmailHelper.java`). An accessibility service, off by default, that carries
   out a tap, Reply or Delete in the Gmail web app window. It finds the email by its subject and
   arrival time, and it only touches the screen when the Gmail web app is the active window and
-  nothing covers the spot.
+  nothing covers the spot. When it needs the Gmail web app it reuses a window that is already open
+  instead of opening a second one. Android switches an accessibility service off whenever its app is
+  updated or reinstalled, so if you grant the optional permission in
+  [step 10](#10-optional-gmail-setup-only-let-the-gmail-helper-stay-on-after-updates) the Keeper
+  turns this helper back on by itself after every update.
 * **Mark as read** (`GhostReceiver.java`). The Mark as read button writes a one-line command to the
   system log, where the Linux Terminal service from the Gmail project picks it up and marks the email
   read in a hidden browser.
@@ -142,7 +146,8 @@ Inside this app, the Gmail features are:
   [Installation](#9-optional-gmail-setup-only-create-the-companion-link)), the Keeper saves the
   notification categories of Gmail and Gmail Go and puts them back if they are ever reset, for
   example after an app's data is cleared. New Gmail categories that are on are set to pop on screen.
-  While the Keeper mirrors Gmail Go, it keeps Gmail Go's own categories silent so that only the copy
+  While the Keeper mirrors Gmail Go, it keeps Gmail Go's own categories at the quietest level, so
+  Gmail Go's own notification never shows, not even for a split second, and only the Keeper's copy
   alerts.
 * **Gmail checks.** The status window shows whether Gmail Go is working, and the Keeper posts a
   "Gmail notifications stopped working" alert if Gmail Go is installed but cannot post
@@ -309,12 +314,29 @@ yourself are saved as they are. Categories that Gmail creates or resets get your
 A new Gmail category that is on, and that does not already pop up, is set to pop on screen. An
 account group you turned off is honored by turning its categories off, because Android lets a
 companion app change categories but not groups. While the Keeper mirrors Gmail Go, Gmail Go's own
-categories are set to silent, except any you turned off, which stay off. The settings are saved in the
-Keeper's private storage, one file per app.
+categories are set to the quietest level, so Gmail Go's own notification never shows, not even for a
+split second, except any you turned off, which stay off. The settings are saved in the Keeper's
+private storage, one file per app.
 
 The link is also what lets the Gmail mirror read which accounts Gmail Go notifies about, so that it can
 recognize the Gmail web app's duplicate alerts, and it lets the Keeper notice when you turn a Gmail Go
 account's mail category on or off, which it passes on to the Mark as read service.
+
+### 10. Optional, Gmail setup only: let the Gmail helper stay on after updates
+
+Skip this step unless you set up the Gmail features and turned the Gmail helper on in Settings, then
+Accessibility. Android switches an accessibility service off whenever its app is updated or
+reinstalled, which would quietly stop tapping a notification to open the exact email, and the Reply
+and Delete buttons, until you turned the helper on again by hand. Grant the Keeper this one
+permission and it turns its own helper back on by itself after every update, on boot, and the moment
+anything switches it off:
+
+```bash
+adb shell pm grant --user <USER_ID> local.notifkeeper android.permission.WRITE_SECURE_SETTINGS
+```
+
+The Keeper only ever adds its own helper to the accessibility list and never touches another app's
+service. The grant survives updates, so this is a one-time step.
 
 ## Using it
 
@@ -468,6 +490,13 @@ your Gmail app registered the permission with the system itself (mine did not, s
 ```bash
 adb shell pm grant --user <USER_ID> local.notifkeeper com.google.android.gm.permission.READ_CONTENT_PROVIDER
 ```
+
+**Tapping a notification, or Reply or Delete, stopped working after an update.**
+Android switches an accessibility service off whenever its app is updated, which turns the Gmail
+helper off. If you granted the permission in
+[step 10](#10-optional-gmail-setup-only-let-the-gmail-helper-stay-on-after-updates), the Keeper turns
+the helper back on by itself within a second. If you did not, grant it once with that command, or
+turn the helper back on by hand in Settings, then Accessibility.
 
 **Copies don't appear for a particular website.**
 A copy is made only when the site itself withdraws its notification. If the original stays in the

@@ -104,7 +104,7 @@ public class DebugReceiver extends BroadcastReceiver {
         String url = GmailMirror.inboxUrl(account);
         Log.i(Keeper.TAG, "test trigger: " + kind + " in the web Gmail");
         WebGmailHelper.start(kind, subject, sender, i.getStringExtra("address"), account, i.getLongExtra("when", 0), url, null);
-        GmailMirror.openWebGmail(c, url);
+        if (!WebGmailHelper.isRunning()) GmailMirror.openWebGmail(c, url);
     }
 
     private static void scanUris(String label, android.app.PendingIntent pi) {

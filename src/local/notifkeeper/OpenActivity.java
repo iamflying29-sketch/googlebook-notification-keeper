@@ -35,18 +35,31 @@ public class OpenActivity extends Activity {
             if (url != null && kind != null) {
                 // An email: the web helper does the rest in the web Gmail once the page is up, and
                 // removes the notification when it's done (it stays if the helper is off or fails).
-                WebGmailHelper.start(WebGmailHelper.Kind.valueOf(kind), getIntent().getCharSequenceExtra(EXTRA_SUBJECT),
-                        getIntent().getCharSequenceExtra(EXTRA_SENDER), getIntent().getStringExtra(EXTRA_ADDRESS),
-                        getIntent().getStringExtra(EXTRA_ACCOUNT),
-                        getIntent().getLongExtra(EXTRA_WHEN, 0), url, getIntent().getStringExtra(EXTRA_CANCEL_TAG));
-                if (!WebGmailHelper.isRunning()) Log.w(Keeper.TAG, "gmail helper is off: only opening the web Gmail");
-                GmailMirror.openWebGmail(this, url);
+                if (WebGmailHelper.isRunning()) {
+                    // The helper opens the web Gmail itself, and only when none is open, so a button
+                    // never adds a second window when one is already open (Gmail's app opens a brand
+                    // new window on every launch, so reusing has to mean not launching at all).
+                    WebGmailHelper.start(WebGmailHelper.Kind.valueOf(kind), getIntent().getCharSequenceExtra(EXTRA_SUBJECT),
+                            getIntent().getCharSequenceExtra(EXTRA_SENDER), getIntent().getStringExtra(EXTRA_ADDRESS),
+                            getIntent().getStringExtra(EXTRA_ACCOUNT),
+                            getIntent().getLongExtra(EXTRA_WHEN, 0), url, getIntent().getStringExtra(EXTRA_CANCEL_TAG));
+                } else {
+                    Log.w(Keeper.TAG, "gmail helper is off: opening the web Gmail so you can act");
+                    GmailMirror.openWebGmail(this, url);
+                }
                 finish();
                 return;
             }
             GmailMirror.removeCopy(this, getIntent().getStringExtra(EXTRA_CANCEL_TAG));
             if (url != null) {
-                GmailMirror.openWebGmail(this, url);
+                // A summary header or a non-mail Gmail copy: just open the Inbox. Reuse an open web
+                // Gmail window if there is one, so this never adds a second window; only open one when
+                // the helper is off or no window is found.
+                if (WebGmailHelper.isRunning()) {
+                    WebGmailHelper.openInbox(url);
+                } else {
+                    GmailMirror.openWebGmail(this, url);
+                }
             } else if (Keeper.TEST_ORIGIN.equals(origin)) {
                 startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (isBrowser(pkg) && origin != null) {

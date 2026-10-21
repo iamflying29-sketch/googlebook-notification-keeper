@@ -5,14 +5,20 @@ import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.OperationCanceledException;
 import android.service.notification.NotificationListenerService;
 import android.util.Log;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Gmail Go's unread counts, read from its public content provider (the one launchers use for badge
@@ -30,8 +36,18 @@ final class GoCounts {
     private static final Object LOCK = new Object();
     private static final Map<String, Map<String, Integer>> last = new HashMap<>();
     private static final Set<String> observed = new HashSet<>();
+    private static final Map<String, ContentObserver> observers = new HashMap<>();
     private static final Handler main = new Handler(Looper.getMainLooper());
     private static boolean deniedLogged;
+
+    /** Hard deadline for reading Gmail Go's provider, so the listener thread is never left waiting. */
+    private static final long READ_TIMEOUT_MS = 1500;
+    private static final ScheduledExecutorService WATCHDOG =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "gocounts-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
 
     private GoCounts() {}
 
@@ -46,8 +62,13 @@ final class GoCounts {
     /** Current unread count per label (canonical names such as ^i, ^iim, ^sq_ig_i_personal), or null. */
     static Map<String, Integer> read(Context c, String account) {
         if (account == null) return null;
+        // Bound the cross-process query: if Gmail Go's provider stalls (for example while it is busy
+        // syncing a just-arrived push), a watchdog cancels the query so the listener's thread is
+        // never left waiting on it (the never-block rule). A cancelled read just returns null.
+        CancellationSignal signal = new CancellationSignal();
+        ScheduledFuture<?> watchdog = WATCHDOG.schedule(signal::cancel, READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         try (Cursor cur = c.getContentResolver().query(labels(account),
-                new String[] {"canonicalName", "numUnreadConversations"}, null, null, null)) {
+                new String[] {"canonicalName", "numUnreadConversations"}, null, null, null, signal)) {
             if (cur == null) return null;
             int ci = cur.getColumnIndex("canonicalName");
             int cu = cur.getColumnIndex("numUnreadConversations");
@@ -58,6 +79,10 @@ final class GoCounts {
                 if (name != null && name.startsWith("^")) m.put(name, cur.getInt(cu));
             }
             return m;
+        } catch (OperationCanceledException e) {
+            Log.w(Keeper.TAG, "go counts: reading Gmail Go's counts took longer than " + READ_TIMEOUT_MS
+                    + " ms, gave up so nothing is blocked");
+            return null;
         } catch (SecurityException e) {
             if (!deniedLogged) {
                 deniedLogged = true;
@@ -67,6 +92,8 @@ final class GoCounts {
         } catch (RuntimeException e) {
             Log.w(Keeper.TAG, "go counts: could not read Gmail Go's counts", e);
             return null;
+        } finally {
+            watchdog.cancel(false);
         }
     }
 
@@ -124,15 +151,43 @@ final class GoCounts {
             if (!observed.add(account)) return;
         }
         try {
-            s.getContentResolver().registerContentObserver(labels(account), true, new ContentObserver(main) {
+            ContentObserver obs = new ContentObserver(main) {
                 @Override
                 public void onChange(boolean selfChange) {
                     ReadSense.poke(s);
                 }
-            });
+            };
+            s.getContentResolver().registerContentObserver(labels(account), true, obs);
+            synchronized (LOCK) {
+                observers.put(account, obs);
+            }
             Log.i(Keeper.TAG, "go counts: watching Gmail Go's counts for " + account);
         } catch (RuntimeException e) {
+            synchronized (LOCK) {
+                observed.remove(account); // let a later pass try again
+            }
             Log.w(Keeper.TAG, "go counts: could not watch Gmail Go's counts", e);
+        }
+    }
+
+    /**
+     * A new listener instance has connected: unregister the observers tied to the old instance and
+     * forget the baselines, so observe() registers fresh observers against the new service. Without
+     * this, after the first reconnect the old observer keeps poking a dead service and no new one is
+     * ever registered, which quietly kills instant read detection.
+     */
+    static void reset(Context c) {
+        synchronized (LOCK) {
+            for (ContentObserver o : observers.values()) {
+                try {
+                    c.getContentResolver().unregisterContentObserver(o);
+                } catch (RuntimeException ignored) {
+                    // already gone
+                }
+            }
+            observers.clear();
+            observed.clear();
+            last.clear();
         }
     }
 }

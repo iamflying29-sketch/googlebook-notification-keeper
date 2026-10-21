@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  * (res/xml/web_gmail_helper.xml), stores nothing and logs no email content.
  */
 public class WebGmailHelper extends AccessibilityService {
-    enum Kind { OPEN, REPLY, DELETE, READ }
+    enum Kind { OPEN, REPLY, DELETE, READ, INBOX }
 
     private static final long JOB_MS = 45_000;
     private static final long RETRY_MS = 300;
@@ -50,6 +50,11 @@ public class WebGmailHelper extends AccessibilityService {
     /** The list must show without that email this long before we refresh / go to an older page. */
     private static final long NOT_HERE_MS = 1_000;
     private static final long SCROLL_AGAIN_MS = 1_500;
+    /** Keep looking for an already-open web Gmail window this long before ever opening one. The window
+     *  list is briefly incomplete right after the shade closes, so a too-early look can miss it. */
+    private static final long LAUNCH_GRACE_MS = 1_800;
+    /** After clicking Inbox (because the web Gmail was on another view), give it this long to open. */
+    private static final long INBOX_SETTLE_MS = 2_500;
     private static final int MAX_PAGES = 5;
     private static final long MENU_WAIT_MS = 2_500;
     private static final long CHECK_WAIT_MS = 3_000;
@@ -67,13 +72,14 @@ public class WebGmailHelper extends AccessibilityService {
         final Kind kind;
         final String subject, sender, address, account, url, tag;
         final long when;
-        final long until = SystemClock.uptimeMillis() + JOB_MS;
+        final long started = SystemClock.uptimeMillis();
+        final long until = started + JOB_MS;
         Stage stage = Stage.FIND;
         String seenWhere; // where the email showed last, to tell the list has settled
         String listSeen;  // which list page showed last without the email
-        long seenAt, listSeenAt, actedAt, scrolledAt;
+        long seenAt, listSeenAt, actedAt, scrolledAt, inboxTapAt;
         int tries, pages;
-        boolean touching, refreshed;
+        boolean touching, refreshed, launched, everSawWindow;
 
         Job(Kind kind, String subject, String sender, String address, String account, long when, String url, String tag) {
             this.kind = kind;
@@ -108,6 +114,17 @@ public class WebGmailHelper extends AccessibilityService {
         if (kind == null || subject == null || subject.toString().trim().isEmpty()) return;
         job = new Job(kind, subject.toString().trim(), sender == null ? null : sender.toString().trim(), address, account,
                 when, url, tag);
+        WebGmailHelper h = running;
+        if (h != null) h.handler.post(h.retry);
+    }
+
+    /**
+     * A notification or the "N new messages" summary that just opens the Inbox (no specific email):
+     * reuse an open web Gmail window if there is one, going to the Inbox there, and only open a new
+     * window when none is found. This keeps even a plain tap from ever adding a second window.
+     */
+    static void openInbox(String url) {
+        job = new Job(Kind.INBOX, "", null, null, null, 0, url, null);
         WebGmailHelper h = running;
         if (h != null) h.handler.post(h.retry);
     }
@@ -191,6 +208,7 @@ public class WebGmailHelper extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         running = this;
+        job = null; // drop any job left over from a previous connection, so no stale action runs
         Log.i(Keeper.TAG, "gmail helper connected");
     }
 
@@ -244,7 +262,23 @@ public class WebGmailHelper extends AccessibilityService {
                 return;
             }
             Gmail g = gmail(j);
-            if (g != null) act(j, g, now);
+            if (g != null) {
+                j.everSawWindow = true;
+                if (j.kind == Kind.INBOX) {
+                    reuseForInbox(j, g, now);
+                } else {
+                    act(j, g, now);
+                }
+            } else if (!j.launched && !j.everSawWindow && now - j.started > LAUNCH_GRACE_MS) {
+                // Only after looking for a while with NO web Gmail window ever seen in this job do we
+                // open one. This is the single place we launch. The grace covers a window that is slow
+                // to appear right after the shade closes, and everSawWindow makes sure that once we have
+                // seen your window we never open a second one, even if a later scan briefly misses it.
+                j.launched = true;
+                logWindowsNow("no web Gmail window found, about to open one");
+                GmailMirror.openWebGmail(this, j.url);
+                Log.i(Keeper.TAG, "gmail helper: no web Gmail window found after " + (now - j.started) + " ms, opened one");
+            }
         } catch (RuntimeException ex) {
             Log.w(Keeper.TAG, "gmail helper: step failed", ex);
         }
@@ -299,7 +333,8 @@ public class WebGmailHelper extends AccessibilityService {
     /** Finds the email in the Inbox list (scrolling, refreshing, older pages) and clicks / right-clicks it. */
     private void find(Job j, Gmail g, long now) {
         Page p = g.page;
-        if (!p.isList() || !p.accountIs(j.account)) { // still loading, or not the Inbox list yet
+        if (!p.isList() || !p.accountIs(j.account)) { // an open email, a search, or another view
+            if (!p.isList()) goToInbox(j, g, now);
             j.seenWhere = null;
             j.listSeen = null;
             return;
@@ -376,6 +411,67 @@ public class WebGmailHelper extends AccessibilityService {
         }
     }
 
+    /**
+     * The web Gmail is not showing the Inbox list (an email is open, a search, or another view). Click
+     * the Inbox item in the left menu, exactly as you would by hand, then look for the email again.
+     * Without this, tapping a notification did nothing until you opened the Inbox yourself.
+     */
+    private void goToInbox(Job j, Gmail g, long now) {
+        Rect inbox = g.page.inbox;
+        if (inbox == null) return;                          // the menu is not readable yet; keep waiting
+        if (now - j.inboxTapAt < INBOX_SETTLE_MS) return;   // tapped already, let the Inbox open
+        if (touch(j, g.window, inbox.centerX(), inbox.centerY(), TAP_MS)) {
+            j.inboxTapAt = now;
+            Log.i(Keeper.TAG, "gmail helper: the web Gmail was not on the Inbox, clicked Inbox to go there");
+        }
+    }
+
+    /**
+     * A plain "open the Inbox" job (Kind.INBOX): a web Gmail window exists, so reuse it rather than
+     * ever opening a second one. If it is already on the Inbox we are done; otherwise click Inbox in
+     * the existing window, then finish. We never launch for this kind once a window has been seen.
+     */
+    private void reuseForInbox(Job j, Gmail g, long now) {
+        Page p = g.page;
+        if (p.isList()) {
+            finish(j, true, "web Gmail already open on the Inbox, reused it");
+            return;
+        }
+        if (p.inbox == null) {
+            // Cannot find the Inbox item to click yet. The window is open, which is what matters (no
+            // second window); give the menu a moment to load, then stop without launching anything.
+            if (now - j.started > INBOX_SETTLE_MS) finish(j, true, "web Gmail already open, reused it");
+            return;
+        }
+        goToInbox(j, g, now);
+        if (j.inboxTapAt > 0 && now - j.inboxTapAt >= INBOX_SETTLE_MS) {
+            finish(j, true, "reused the open window and went to the Inbox");
+        }
+    }
+
+    /**
+     * Logs every window the helper can see right now (package, title, bounds), with a reason. Called
+     * just before the helper opens a window, so a real test leaves evidence of what was actually open
+     * at that moment and whether the existing web Gmail window was visible to the helper.
+     */
+    private void logWindowsNow(String why) {
+        try {
+            Rect r = new Rect();
+            StringBuilder sb = new StringBuilder("gmail helper: windows (").append(why).append("):");
+            for (AccessibilityWindowInfo w : getWindows()) {
+                AccessibilityNodeInfo root = w.getRoot();
+                CharSequence pkg = root == null ? null : root.getPackageName();
+                w.getBoundsInScreen(r);
+                sb.append("\n  layer ").append(w.getLayer()).append(" type ").append(w.getType())
+                        .append(" pkg ").append(pkg).append(" title ").append(w.getTitle())
+                        .append(' ').append(r.toShortString()).append(w.isActive() ? " active" : "");
+            }
+            Log.i(Keeper.TAG, sb.toString());
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "gmail helper: could not list windows", e);
+        }
+    }
+
     private void finish(Job j, boolean done, String what) {
         if (job == j) job = null;
         handler.removeCallbacks(retry);
@@ -433,10 +529,10 @@ public class WebGmailHelper extends AccessibilityService {
 
     /**
      * Is it safe to tap the web Gmail at this point? Yes when the point is inside the web Gmail
-     * window and no other window sits on top of it there. The web Gmail does not have to be the
-     * focused window: right after you tap a notification it is on screen but not yet focused, and an
-     * earlier focus check made the helper wait until you clicked the inbox yourself. The cover test
-     * below is what keeps the tap from ever landing on another app.
+     * window and no other window sits on top of it there. We do NOT require the web Gmail to be the
+     * focused window: right after you tap a notification the web Gmail is on screen but not yet
+     * focused, and the old focus check made the helper wait until you clicked the inbox yourself.
+     * The cover test below is what keeps the tap from ever landing on another app.
      */
     private boolean uncovered(AccessibilityWindowInfo w, int x, int y) {
         Rect r = new Rect();
@@ -477,7 +573,7 @@ public class WebGmailHelper extends AccessibilityService {
     private static final Pattern CLOCK = Pattern.compile("^(\\d{1,2}):(\\d{2}) (am|pm)$");
 
     /**
-     * Does the list's time label ("9:50 am" today, "jan 5" this year, "1/5/25" before) fit an
+     * Does the list's time label ("2:34 am" today, "oct 11" this year, "10/11/25" before) fit an
      * email that arrived at when? Unknown when: anything fits.
      */
     private static boolean timeFits(String label, long when) {
@@ -512,12 +608,12 @@ public class WebGmailHelper extends AccessibilityService {
         boolean onScreen;
         Rect target;
         long time;           // the row's exact date and time (to the minute), 0 = not read
-        boolean labelFits;   // its short time label ("9:50 AM") fits the arrival time
+        boolean labelFits;   // its short time label ("2:34 AM") fits the arrival time
         boolean unread;
         int score;
     }
 
-    /** A row's full date ("Mon, Jan 5, 2026, 9:30 AM") at its place in the list. */
+    /** A row's full date ("Mon, Oct 12, 2026, 2:14 AM") at its place in the list. */
     private static final class Stamp {
         int top, bottom;
         long time;
@@ -533,6 +629,7 @@ public class WebGmailHelper extends AccessibilityService {
         String listId = "";            // the first email in the list (tells pages apart)
         Row row;                       // the job's email in the list
         Rect refresh, older;           // the list's Refresh and Older buttons
+        Rect inbox;                    // the "Inbox" item in the left menu (to go there from elsewhere)
         AccessibilityNodeInfo reply;   // the lowest "Reply" button (an email is open)
         int replyTop = -1;
         boolean back, composing;       // "Back to Inbox"; a reply/compose window with Send
@@ -579,7 +676,12 @@ public class WebGmailHelper extends AccessibilityService {
         for (AccessibilityWindowInfo w : getWindows()) {
             if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
             AccessibilityNodeInfo r = w.getRoot();
-            if (r == null || r.getPackageName() == null || !"com.android.chrome".contentEquals(r.getPackageName())) continue;
+            if (r == null || r.getPackageName() == null) continue;
+            // The web Gmail window can show up under Chrome's package (a Chrome tab or app window) or
+            // under Gmail's own package (the TWA at com.google.android.gm/...TwaActivity, which Chrome
+            // renders). Accept both; scan() still confirms it is really the web Gmail (the search box).
+            CharSequence rp = r.getPackageName();
+            if (!"com.android.chrome".contentEquals(rp) && !Keeper.GMAIL.contentEquals(rp)) continue;
             Page p = scan(r, j);
             if (!p.gmail) continue;
             Gmail g = new Gmail();
@@ -621,6 +723,17 @@ public class WebGmailHelper extends AccessibilityService {
                 if (r.top < page.top + 200) p.searching = true; // the search box is at the top
             }
             if (low.startsWith("back to ") && cls.endsWith("Button")) p.back = true;
+            if (p.inbox == null && n.isVisibleToUser()) {
+                // The "Inbox" item in the left menu (its own label "Inbox", or the row's description
+                // "Inbox 14886 unread"), not the "AI Inbox" item or an "Inbox" label button. Used to
+                // go to the Inbox when the web Gmail is showing something else.
+                String nd = norm(desc), nt = norm(text);
+                if (nd.equals("inbox") || nd.matches("inbox [\\d,]+ unread") || nt.equals("inbox")) {
+                    Rect r = new Rect();
+                    n.getBoundsInScreen(r);
+                    if (!r.isEmpty() && r.left < page.left + 500) p.inbox = r;
+                }
+            }
             if (low.startsWith("send") && cls.endsWith("Button")) p.composing = true;
             if (cls.endsWith("Button") && (low.equals("refresh") || low.equals("older"))) {
                 Rect r = new Rect();
@@ -643,7 +756,7 @@ public class WebGmailHelper extends AccessibilityService {
             if (!text.isEmpty() && text.length() <= 300 && p.texts.size() < 400) p.texts.add(text);
 
             if (text.contains(" , ") && !cls.endsWith("EditText")) {
-                // "unread, Sender , Subject , 9:50 AM , preview": one email in the list. Its own item
+                // "unread, Sender , Subject , 2:34 AM , preview": one email in the list. Its own item
                 // is tiny and sits on the row's checkbox, so we touch the row's subject instead.
                 if (p.rows++ == 0) p.listId = text;
                 if (subj != null) {
@@ -711,7 +824,7 @@ public class WebGmailHelper extends AccessibilityService {
         return side.equals("Top") ? r.top : r.bottom;
     }
 
-    /** Turns "Mon, Jan 5, 2026, 9:30 AM" into a time in ms (this device's time zone), 0 if unreadable. */
+    /** "Mon, Oct 12, 2026, 2:14 AM" -> time in ms (this device's time zone), 0 if unreadable. */
     private static long parseStamp(String s) {
         try {
             Date d = new SimpleDateFormat("EEE, MMM d, yyyy, h:mm a", Locale.US).parse(s.replace('\u202f', ' ').replace('\u00a0', ' '));

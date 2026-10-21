@@ -265,18 +265,18 @@ final class Keeper {
      */
     static void runGuard(Context c) {
         createChannels(c);
+        AccessibilityGuard.ensure(c);
         SharedPreferences p = prefs(c);
         GmailState g = gmailState(c);
         GmailMirror.Engine go = GmailMirror.engine(c);
         // Fine if either the full Gmail gets pushes itself, or Gmail Go does (then the full Gmail
-        // being in web mode is expected). Without Gmail Go installed, the Gmail setup is not in use,
-        // so there is nothing to warn about.
-        boolean ok = g == GmailState.FULL || go == GmailMirror.Engine.OK
-                || go == GmailMirror.Engine.MISSING;
+        // being in web mode is expected).
+        boolean ok = g == GmailState.FULL || go == GmailMirror.Engine.OK;
         String gmailKey = ok ? "" : g + ":" + gmailVersion(c) + "/go:" + go + ":" + GmailMirror.goVersion(c);
         if (!gmailKey.equals(p.getString("gmail_alerted", ""))) {
             if (!ok) {
-                alert(c, 1, c.getString(R.string.alert_go_title), c.getString(R.string.alert_go_blocked));
+                alert(c, 1, c.getString(R.string.alert_go_title), c.getString(
+                        go == GmailMirror.Engine.MISSING ? R.string.alert_go_missing : R.string.alert_go_blocked));
             } else {
                 c.getSystemService(NotificationManager.class).cancel(1);
             }

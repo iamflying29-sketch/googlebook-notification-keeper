@@ -60,7 +60,8 @@ final class GmailMirror {
     /** A probe re-snoozes hidden notifications this briefly; the unread ones come back, read ones do not. */
     private static final long PROBE_MS = 1200;
     private static final long PROBE_SETTLE_MS = 3000;
-    private static volatile long lastProbeAt;
+    /** When a read probe last ran, per account, so one account's probe never blocks another's. */
+    private static final Map<String, Long> lastProbeAt = new HashMap<>();
     private static final String MAIL_CHANNEL = "^nc_1_mail_";
     private static final String ACCOUNT_GROUP = "^ncg_1_account_";
 
@@ -113,8 +114,12 @@ final class GmailMirror {
      */
     static void probe(NotificationListenerService s, String account) {
         long now = System.currentTimeMillis();
-        if (now - lastProbeAt < PROBE_MS + PROBE_SETTLE_MS) return; // one at a time
-        lastProbeAt = now;
+        String probeKey = account == null ? "" : account;
+        synchronized (LOCK) {
+            Long prev = lastProbeAt.get(probeKey);
+            if (prev != null && now - prev < PROBE_MS + PROBE_SETTLE_MS) return; // one at a time per account
+            lastProbeAt.put(probeKey, now);
+        }
         List<String> keys = new ArrayList<>();
         try {
             StatusBarNotification[] snoozed = s.getSnoozedNotifications();
@@ -174,7 +179,13 @@ final class GmailMirror {
         }
         Log.i(Keeper.TAG, "gmail mirror: probe done: " + back + " came back (unread), " + read.size() + " read");
         if (!read.isEmpty()) {
-            main.postDelayed(() -> fixSummary(s, account), 400);
+            main.postDelayed(() -> {
+                try {
+                    fixSummary(s, account);
+                } catch (RuntimeException e) {
+                    Log.w(Keeper.TAG, "gmail mirror: fixing the summary failed", e);
+                }
+            }, 400);
             ReadSense.learned(s, latencies);
         }
         synchronized (LOCK) {
@@ -494,6 +505,10 @@ final class GmailMirror {
             Log.w(Keeper.TAG, "gmail mirror: could not post copy, leaving Gmail Go's own", e);
             return;
         }
+        // Our copy is up, so hide Gmail Go's own right now, before the count query below. The sooner
+        // it is snoozed the less chance of seeing it next to our copy, even for a split second. (If
+        // the copy had failed to post we returned above, leaving Gmail Go's own in place as a fallback.)
+        hideGo(s, sbn);
         synchronized (LOCK) {
             live.add(tag);
         }
@@ -505,7 +520,6 @@ final class GmailMirror {
         }
         GoCounts.observe(s, account);
         ReadSense.noteNewMail(s);
-        hideGo(s, sbn);
         refreshSummary(s, group, channelId, account);
         trim(s);
         if (alert) {
@@ -743,7 +757,7 @@ final class GmailMirror {
     // ---- the web Gmail's own duplicates ------------------------------------------------------------
 
     /** How long to wait for Gmail Go's copy before giving up and leaving the web notification up. */
-    private static final long WEB_DUP_GRACE_MS = 2500;
+    private static final long WEB_DUP_GRACE_MS = 700;
 
     /**
      * The web Gmail (open window) posted a new-mail notification. It's a duplicate of our Gmail Go
@@ -762,10 +776,14 @@ final class GmailMirror {
         }
         // our copy isn't up yet: re-check after a short grace period
         main.postDelayed(() -> {
-            if (hasCopyFor(s, account)) {
-                removeWebDuplicate(s, key);
-            } else {
-                Log.i(Keeper.TAG, "gmail mirror: kept web Gmail's notification (no Gmail Go copy yet)");
+            try {
+                if (hasCopyFor(s, account)) {
+                    removeWebDuplicate(s, key);
+                } else {
+                    Log.i(Keeper.TAG, "gmail mirror: kept web Gmail's notification (no Gmail Go copy yet)");
+                }
+            } catch (RuntimeException e) {
+                Log.w(Keeper.TAG, "gmail mirror: web duplicate re-check failed", e);
             }
         }, WEB_DUP_GRACE_MS);
     }

@@ -25,8 +25,13 @@ public class KeeperListener extends NotificationListenerService {
     public void onListenerConnected() {
         Keeper.createChannels(this);
         Keeper.runGuard(this);
+        AccessibilityGuard.watch(this);
         GuardJob.schedule(this);
         SettingsGuard.sync(this);
+        // A fresh service instance: drop watchers and ticks tied to any previous instance so they
+        // re-register against this one. Otherwise read detection goes dead after the first reconnect.
+        GoCounts.reset(this);
+        ReadSense.reset();
         try {
             GmailMirror.reloadLive(this);
             GmailMirror.reloadTracking(this);

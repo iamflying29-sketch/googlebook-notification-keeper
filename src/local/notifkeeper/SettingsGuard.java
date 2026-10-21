@@ -31,7 +31,7 @@ import org.json.JSONObject;
  * - A category the user has set (Android marks it "user set") is the truth: we save it.
  * - A category Gmail has just created or reset (not user locked) gets the saved settings back.
  *   A brand-new category we've never seen (e.g. a newly added account) gets "Pop on screen",
- *   following this app's rule that every Gmail category that is on should pop up.
+ *   following the user's rule that every Gmail category that is on should pop up.
  * - Account groups the user switched off are honoured by switching off their categories (Android
  *   lets companion apps change categories, not groups).
  *
@@ -50,7 +50,7 @@ final class SettingsGuard {
         return false;
     }
 
-    /** Gmail keeps its original file name so settings saved by earlier versions stay in use. */
+    /** Gmail keeps its original file name so the settings saved on 2026-10-11 stay in use. */
     private static String file(String pkg) {
         return Keeper.GMAIL.equals(pkg) ? "gmail-notification-settings.json" : pkg + "-notification-settings.json";
     }
@@ -90,9 +90,11 @@ final class SettingsGuard {
             if (savedGroups == null) savedGroups = new JSONObject();
             boolean changed = false;
 
-            if (Keeper.GMAIL_GO.equals(pkg) && GmailMirror.engineOk(s)) {
+            if (Keeper.GMAIL_GO.equals(pkg)) {
                 // Gmail Go's notifications are shown by our copies (GmailMirror), which pop up;
-                // Gmail Go's own must stay silent so nothing alerts twice.
+                // Gmail Go's own must stay hidden so nothing shows twice, even for a split second.
+                // This runs for Gmail Go regardless of the engine check: the general path below can
+                // raise a category back to "pop on screen", which would make Gmail Go's own pop up.
                 if (silenceOriginals(s, user, channels, savedChannels)) {
                     try {
                         snap.put("channels", savedChannels).put("savedAt", System.currentTimeMillis());
@@ -198,9 +200,11 @@ final class SettingsGuard {
     }
 
     /**
-     * Gmail Go while its notifications are mirrored: every category that's on becomes silent
-     * ("Low"); a category the user switched off stays off, also after Gmail Go resets it.
-     * Returns true if the saved settings changed.
+     * Gmail Go while its notifications are mirrored: every category that's on is set to the quietest
+     * level ("Min"), so Gmail Go's own notification never pops up or even shows a status-bar icon
+     * before the Keeper hides it; a category the user switched off stays off, also after Gmail Go
+     * resets it. "Min" rather than "Low" because on this desktop a freshly posted "Low" notification
+     * still flashes a card for a moment. Returns true if the saved settings changed.
      */
     private static boolean silenceOriginals(NotificationListenerService s, UserHandle user,
             List<NotificationChannel> channels, JSONObject savedChannels) {
@@ -219,8 +223,8 @@ final class SettingsGuard {
                 NotificationChannel want = copy(ch);
                 if (saved != null && saved.optInt("importance", -1) == NotificationManager.IMPORTANCE_NONE) {
                     want.setImportance(NotificationManager.IMPORTANCE_NONE); // switched off by the user
-                } else if (imp != NotificationManager.IMPORTANCE_LOW) {
-                    want.setImportance(NotificationManager.IMPORTANCE_LOW);
+                } else if (imp != NotificationManager.IMPORTANCE_MIN) {
+                    want.setImportance(NotificationManager.IMPORTANCE_MIN);
                 } else {
                     if (saved == null || saved.optInt("importance", -1) != imp) {
                         savedChannels.put(ch.getId(), toJson(ch).put("userSet", userSet(ch)));
@@ -230,7 +234,7 @@ final class SettingsGuard {
                 }
                 s.updateNotificationChannel(Keeper.GMAIL_GO, user, want);
                 Log.i(Keeper.TAG, "settings guard: Gmail Go category " + ch.getId() + " -> "
-                        + (want.getImportance() == NotificationManager.IMPORTANCE_NONE ? "off" : "silent (Keeper shows it)"));
+                        + (want.getImportance() == NotificationManager.IMPORTANCE_NONE ? "off" : "hidden/min (Keeper shows it)"));
             } catch (JSONException | RuntimeException e) {
                 Log.w(Keeper.TAG, "settings guard: Gmail Go category " + ch.getId(), e);
             }
@@ -258,7 +262,7 @@ final class SettingsGuard {
         return false;
     }
 
-    /** New category never seen before: pop on screen if it's on (this app's rule for Gmail). */
+    /** New category never seen before: pop on screen if it's on (the user's rule for Gmail). */
     private static NotificationChannel newCategoryRule(NotificationChannel ch) {
         if (ch.getImportance() == NotificationManager.IMPORTANCE_NONE) return null; // switched off
         if (ch.getImportance() >= NotificationManager.IMPORTANCE_HIGH) return null; // already pops up
@@ -356,7 +360,7 @@ final class SettingsGuard {
         }
     }
 
-    /** "12 categories, 2 account groups (saved Jan 5, 9:30 AM)" for the status window. */
+    /** "14 categories, 5 account groups (saved Oct 11, 3:40 AM)" for the status window. */
     static String summary(Context c) {
         JSONObject o = load(c, Keeper.GMAIL);
         JSONObject ch = o.optJSONObject("channels");

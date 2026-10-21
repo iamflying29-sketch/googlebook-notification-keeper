@@ -79,7 +79,7 @@ public class GhostReceiver extends BroadcastReceiver {
         if (p.contains(key) && p.getBoolean(key, false) == on) return; // no change
         p.edit().putBoolean(key, on).apply();
         emit(accountJson(on ? "account_enable" : "account_disable", account));
-        Log.i(Keeper.TAG, "auto-tie: " + account + " notifications " + (on ? "ON, so enabling ghost" : "OFF, so disabling ghost"));
+        Log.i(Keeper.TAG, "auto-tie: " + account + " notifications " + (on ? "ON -> enable ghost" : "OFF -> disable ghost"));
     }
 
     private static String id() {

@@ -54,6 +54,16 @@ final class ReadSense {
         schedule(s, nextDelay(s));
     }
 
+    /**
+     * A new listener instance has connected: cancel any ticks scheduled against a previous instance
+     * and clear the flag, so the next watch() re-arms against the new service. Without this, the old
+     * loop keeps ticking against a dead service and the new watch() is a no-op.
+     */
+    static void reset() {
+        main.removeCallbacksAndMessages(null);
+        scheduled = false;
+    }
+
     private static void schedule(NotificationListenerService s, long delay) {
         scheduled = true;
         main.postDelayed(() -> tick(s), delay);

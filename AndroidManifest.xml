@@ -5,6 +5,10 @@
     <!-- No INTERNET permission: this app never sends anything anywhere. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets the Keeper turn its own Gmail accessibility helper back on after an app update or
+         reinstall, which Android otherwise leaves switched off. Granted once over adb (see README):
+         adb shell pm grant local.notifkeeper android.permission.WRITE_SECURE_SETTINGS -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <!-- Gmail Go's unread counts (its public provider, the one launcher badges use). This is how the
          Keeper notices that a mail was read on another device. Declared below, so it is granted on install. -->
     <!-- On this device neither Gmail registers this permission with the system (both are installed for a
