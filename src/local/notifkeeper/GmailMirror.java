@@ -879,11 +879,27 @@ final class GmailMirror {
     }
 
     /**
-     * Opens a mail.google.com link in the web Gmail app (falls back to any browser). The link is
-     * marked as a web link (BROWSABLE) and sent to the one Gmail screen that takes those - the web
-     * screen - otherwise Gmail's launcher screen also matches and the system asks which to use.
+     * Brings the web Gmail to the front, reusing the window that is already open instead of ever
+     * adding a second one. Launching the Gmail web app's own launcher activity (ACTION_MAIN with
+     * CATEGORY_LAUNCHER), exactly the way tapping its icon does, brings its existing task to the front
+     * when one is open and starts it when none is, so it never makes a duplicate. The web Gmail now
+     * runs as a Chrome Custom Tab, and a plain ACTION_VIEW of the inbox link opens a brand new Custom
+     * Tab task every time, which was the second window. Once Gmail is in front the helper goes to the
+     * Inbox and acts on the email itself, so the account's inbox link is needed only as a fallback.
      */
     static void openWebGmail(Context c, String url) {
+        Intent launch = c.getPackageManager().getLaunchIntentForPackage(Keeper.GMAIL);
+        if (launch != null) {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                c.startActivity(launch);
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(Keeper.TAG, "web Gmail: the launcher intent failed, falling back to the link", e);
+            }
+        }
+        // Fallback, only when Gmail exposes no launcher activity to reuse: open the inbox link. This
+        // one can add a window, but it is the last resort so you can still act on the email.
         Uri u = Uri.parse(url);
         Intent view = new Intent(Intent.ACTION_VIEW, u).addCategory(Intent.CATEGORY_BROWSABLE)
                 .setPackage(Keeper.GMAIL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
