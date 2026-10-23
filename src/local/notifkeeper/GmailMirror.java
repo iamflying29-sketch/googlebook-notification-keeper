@@ -74,6 +74,11 @@ final class GmailMirror {
     private static final Map<String, String> shown = new HashMap<>();
     /** Tags of our Gmail copies currently in the tray (lets the web helper skip work when there are none). */
     private static final Set<String> live = new HashSet<>();
+    /** Tags the Keeper is cancelling itself (after a read, a button, trimming or a group tidy), so a
+     *  removal we caused is never mistaken for one you made. A copy that leaves the tray WITHOUT its
+     *  tag here was removed by you (a swipe or clearing the shade), whatever reason code the device
+     *  reports, and that is what we remember so it does not come back when the snooze expires. */
+    private static final Set<String> selfRemoving = new HashSet<>();
     /** A Gmail Go notification we mirrored and hid: our copy's tag, its account, when it arrived. */
     static final class Tracked {
         final String tag;
@@ -315,7 +320,7 @@ final class GmailMirror {
             } catch (RuntimeException e) {
                 // snoozed right now: it will be removed when it next re-posts
             }
-            Log.i(Keeper.TAG, "gmail mirror: a dismissed mail came back from Gmail Go; removed it, not re-showing");
+            Log.i(Keeper.TAG, "gmail mirror: a dismissed mail came back (key " + sbn.getKey() + "); removed it, not re-showing");
             return;
         }
         boolean beingProbed;
@@ -548,6 +553,10 @@ final class GmailMirror {
                 account = x.getNotification().extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
             }
         }
+        synchronized (LOCK) {
+            selfRemoving.add(tag);
+            if (selfRemoving.size() > 200) selfRemoving.clear(); // bound it; onCopyRemoved clears each in turn
+        }
         nm.cancel(tag, ID);
         synchronized (LOCK) {
             live.remove(tag);
@@ -605,14 +614,23 @@ final class GmailMirror {
         if (sbn.getTag() == null || !sbn.getTag().startsWith(CHILD_PREFIX)) return;
         // A copy's tag is CHILD_PREFIX + the Gmail Go notification's key, so the key is the rest of it.
         String goKey = sbn.getTag().substring(CHILD_PREFIX.length());
+        boolean weRemoved;
         synchronized (LOCK) {
             live.remove(sbn.getTag());
             tracked.remove(goKey);
+            weRemoved = selfRemoving.remove(sbn.getTag());
         }
-        // reason 1 (tapped), 2 (swiped) and 3 (cleared all) mean you got rid of it on purpose, so it
-        // must not come back. reason 8/10/12 are our own removals (a read, or acting on a button), which
-        // are already handled. On a real dismissal we also remove Gmail Go's own copy in case it shows.
-        boolean youDismissed = reason == 1 || reason == 2 || reason == 3;
+        // Did YOU get rid of this copy, or did the Keeper remove its own after a read, a button or a
+        // tidy? We decide by whether the Keeper asked for it (selfRemoving), NOT by the reason code,
+        // because the code a swipe reports differs between devices and between a single card and a
+        // stacked group. Matching only reason 1, 2 or 3 before meant a swipe that arrived under another
+        // code was never recorded, so the mail came back when its 12 hour snooze expired. Now any copy
+        // removed without the Keeper asking is your dismissal, except the system's own churn (errors,
+        // package or profile changes, group re-bundling, a snooze or the assistant), which is not you.
+        boolean systemChurn = (reason >= 4 && reason <= 11) || (reason >= 13 && reason <= 22);
+        boolean youDismissed = !weRemoved && !systemChurn;
+        Log.i(Keeper.TAG, "gmail mirror: copy removed (reason " + reason + ", key " + goKey + "): "
+                + (weRemoved ? "the Keeper's own removal" : youDismissed ? "you dismissed it, remembering so it stays gone" : "system churn, left as is"));
         if (youDismissed) {
             addDismissed(c, goKey);
             if (c instanceof NotificationListenerService) {
@@ -622,7 +640,6 @@ final class GmailMirror {
                     // snoozed right now: onPosted removes it when it next re-posts
                 }
             }
-            Log.i(Keeper.TAG, "gmail mirror: you dismissed a mail (reason " + reason + "); it will not come back");
         }
         Notification n = sbn.getNotification();
         CharSequence account = n.extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
