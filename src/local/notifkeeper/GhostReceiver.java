@@ -26,23 +26,70 @@ public class GhostReceiver extends BroadcastReceiver {
     static final String EXTRA_WHEN = "when";
     static final String EXTRA_CANCEL_TAG = "cancel";
 
+    /** Where the durable copy of each command goes, as the Linux VM sees it:
+     *  /mnt/shared/Documents/Notification Keeper/cmd/<id>.json . Its own subfolder, so the daemon only
+     *  ever looks at command files and never at anything else in the Notification Keeper folder. */
+    static final String CMD_DIR = android.os.Environment.DIRECTORY_DOCUMENTS + "/Notification Keeper/cmd/";
+
     @Override
     public void onReceive(Context c, Intent i) {
-        String account = i.getStringExtra(EXTRA_ACCOUNT);
-        String address = i.getStringExtra(EXTRA_ADDRESS);
-        String subject = i.getStringExtra(EXTRA_SUBJECT);
-        long when = i.getLongExtra(EXTRA_WHEN, 0);
-        emit(markReadJson(account, address, subject, when));
-        GmailMirror.removeCopy(c, i.getStringExtra(EXTRA_CANCEL_TAG));
+        markReadNow(c, i.getStringExtra(EXTRA_ACCOUNT), i.getStringExtra(EXTRA_ADDRESS),
+                i.getStringExtra(EXTRA_SUBJECT), i.getLongExtra(EXTRA_WHEN, 0), i.getStringExtra(EXTRA_CANCEL_TAG));
     }
 
-    /** Emit a command on logcat for the ghost daemon. */
+    /**
+     * Sends a Mark-as-read to the ghost daemon two ways at once, then removes our copy. The logcat line
+     * is the instant path. The durable file is the backstop: the daemon drains it whenever it runs,
+     * with no time limit, so a tap survives a Wi-Fi outage, the adb port moving, a daemon restart or a
+     * reboot. Whichever arrives second is ignored, because the daemon dedupes by the command id.
+     */
+    static void markReadNow(Context c, String account, String address, String subject, long when, String cancelTag) {
+        String id = id();
+        String json = markReadJson(id, account, address, subject, when);
+        emit(json);
+        dropCmdFile(c, id, json);
+        GmailMirror.removeCopy(c, cancelTag);
+    }
+
+    /** Emit a command on logcat for the ghost daemon (the instant path). */
     static void emit(String json) {
         Log.i(TAG, json);
     }
 
+    /**
+     * Writes the command as a durable file in the shared Documents folder via MediaStore, exactly the
+     * way the Sleep Guard helper publishes its port file. If this fails we have already emitted on
+     * logcat, so the normal case loses nothing; the file only has to carry a tap the daemon missed.
+     */
+    private static void dropCmdFile(Context c, String id, String json) {
+        try {
+            android.content.ContentResolver cr = c.getContentResolver();
+            android.net.Uri files = android.provider.MediaStore.Files.getContentUri(
+                    android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            android.content.ContentValues v = new android.content.ContentValues();
+            v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, id + ".json");
+            v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json");
+            v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, CMD_DIR);
+            android.net.Uri uri = cr.insert(files, v);
+            if (uri == null) {
+                Log.w(Keeper.TAG, "ghost: the Documents folder refused a command file (logcat was still sent)");
+                return;
+            }
+            try (java.io.OutputStream out = cr.openOutputStream(uri, "wt")) {
+                out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            Log.i(Keeper.TAG, "ghost: wrote a durable command file for the daemon (" + id + ".json)");
+        } catch (Exception e) {
+            Log.w(Keeper.TAG, "ghost: could not write a durable command file (logcat was still sent)", e);
+        }
+    }
+
     static String markReadJson(String account, String address, String subject, long when) {
-        return "{" + kv("id", id()) + "," + num("ts", System.currentTimeMillis()) + ","
+        return markReadJson(id(), account, address, subject, when);
+    }
+
+    static String markReadJson(String id, String account, String address, String subject, long when) {
+        return "{" + kv("id", id) + "," + num("ts", System.currentTimeMillis()) + ","
                 + kv("op", "markread") + "," + kv("account", account) + "," + kv("address", address) + ","
                 + kv("subject", subject) + "," + num("when", when) + "}";
     }

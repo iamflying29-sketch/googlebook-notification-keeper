@@ -91,9 +91,9 @@ public class DebugReceiver extends BroadcastReceiver {
             return;
         }
         if ("markread".equals(i.getStringExtra("ghost"))) {
-            // Test the ghost Mark-as-read path: emit the same logcat command the button does.
-            GhostReceiver.emit(GhostReceiver.markReadJson(i.getStringExtra("account"),
-                    i.getStringExtra("address"), i.getStringExtra("subject"), i.getLongExtra("when", 0)));
+            // Test the ghost Mark-as-read path: send it both ways, exactly as the button does.
+            GhostReceiver.markReadNow(c, i.getStringExtra("account"), i.getStringExtra("address"),
+                    i.getStringExtra("subject"), i.getLongExtra("when", 0), null);
             return;
         }
         String subject = i.getStringExtra("subject");
