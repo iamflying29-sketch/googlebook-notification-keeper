@@ -48,7 +48,62 @@ public class GhostReceiver extends BroadcastReceiver {
         String json = markReadJson(id, account, address, subject, when);
         emit(json);
         dropCmdFile(c, id, json);
+        ensureGhostHost(c);
         GmailMirror.removeCopy(c, cancelTag);
+    }
+
+    /**
+     * The ghost daemon lives in the Linux Terminal's VM, and the Terminal app stops that VM whenever
+     * its last window closes. The durable file keeps the tap safe, but nothing would act on it until
+     * the Terminal is opened again. So when the VM is not running, open the Terminal the way its app
+     * icon does: the VM boots, the daemon starts and drains the command within seconds. The Terminal
+     * posts a foreground service notification only while its VM is alive, and the notification
+     * listener can see it, so that is the test. Nothing happens when the VM is already running.
+     */
+    static void ensureGhostHost(Context c) {
+        Boolean running = terminalVmRunning();
+        if (running == null) {
+            Log.w(Keeper.TAG, "ghost: cannot tell whether the Terminal VM is running (listener not bound), leaving it");
+            return;
+        }
+        if (running) {
+            Log.i(Keeper.TAG, "ghost: the Terminal VM is running");
+            return;
+        }
+        Intent launch = c.getPackageManager().getLaunchIntentForPackage(Keeper.TERMINAL);
+        if (launch == null) {
+            Log.w(Keeper.TAG, "ghost: the Terminal VM is not running and the Terminal app has no launcher entry");
+            return;
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            c.startActivity(launch);
+            Log.i(Keeper.TAG, "ghost: the Terminal VM is not running; opened the Terminal so the daemon can act on the queued command");
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "ghost: the Terminal VM is not running and opening the Terminal failed", e);
+        }
+    }
+
+    /**
+     * Whether the Terminal's VM is alive: true or false when the listener can look at the posted
+     * notifications, null when it cannot (listener not bound right now).
+     */
+    static Boolean terminalVmRunning() {
+        KeeperListener l = KeeperListener.current;
+        if (l == null) return null;
+        try {
+            android.service.notification.StatusBarNotification[] all = l.getActiveNotifications();
+            if (all == null) return null;
+            for (android.service.notification.StatusBarNotification s : all) {
+                if (Keeper.TERMINAL.equals(s.getPackageName())
+                        && (s.getNotification().flags & android.app.Notification.FLAG_FOREGROUND_SERVICE) != 0) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** Emit a command on logcat for the ghost daemon (the instant path). */

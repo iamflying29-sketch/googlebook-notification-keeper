@@ -90,6 +90,12 @@ public class DebugReceiver extends BroadcastReceiver {
             Log.i(Keeper.TAG, "go counts for " + i.getStringExtra("counts") + ": " + GoCounts.read(c, i.getStringExtra("counts")));
             return;
         }
+        if (i.hasExtra("vmcheck")) {
+            // adb test: log whether the Terminal VM is seen as running (adb shell am broadcast ... --ez vmcheck true).
+            // Looks only; never opens the Terminal.
+            Log.i(Keeper.TAG, "terminal VM running: " + GhostReceiver.terminalVmRunning());
+            return;
+        }
         if ("markread".equals(i.getStringExtra("ghost"))) {
             // Test the ghost Mark-as-read path: send it both ways, exactly as the button does.
             GhostReceiver.markReadNow(c, i.getStringExtra("account"), i.getStringExtra("address"),

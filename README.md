@@ -139,7 +139,14 @@ Inside this app, the Gmail features are:
   turns this helper back on by itself after every update.
 * **Mark as read** (`GhostReceiver.java`). The Mark as read button writes a one-line command to the
   system log, where the Linux Terminal service from the Gmail project picks it up and marks the email
-  read in a hidden browser.
+  read in a hidden browser. It also saves the same command as a small file in
+  `Documents/Notification Keeper/cmd/`, so the service still finds it after an outage. The Linux
+  Terminal stops its Linux system whenever its last window closes, and the service stops with it. So
+  when you tap Mark as read and the Terminal's Linux system is not running, the Keeper opens the
+  Terminal the same way its app icon does. The Linux system starts, the service picks up the saved
+  command, and the email is marked read a few seconds later. The Keeper can tell whether the Linux
+  system is running because the Terminal shows its ongoing notification only while it is. The
+  Terminal window stays open afterwards, because closing it would stop the Linux system again.
 * **Gmail Go's other buttons** (`ActionReceiver.java`). Buttons on Gmail Go's other notifications that
   work in the background run Gmail Go's own action.
 * **Settings guard** (`SettingsGuard.java`). With a companion link (explained in

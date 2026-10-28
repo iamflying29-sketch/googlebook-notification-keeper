@@ -37,6 +37,8 @@ final class Keeper {
 
     static final String GMAIL = "com.google.android.gm";
     static final String GMAIL_GO = "com.google.android.gm.lite";
+    /** The Linux Terminal app. Its VM hosts the ghost daemon that marks mail read. */
+    static final String TERMINAL = "com.android.virtualization.terminal";
     static final String TEST_ORIGIN = "https://keeper.test";
     private static final String KEPT_TAG_PREFIX = "kept:";
     /** Android allows 50 notifications per app; Gmail copies (GmailMirror) take up to 25 + summaries. */
