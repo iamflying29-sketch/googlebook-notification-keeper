@@ -24,6 +24,8 @@
         <package android:name="com.google.android.gm" />
         <!-- Gmail Go: its notifications are shown linked to the web Gmail (and its icon reused). -->
         <package android:name="com.google.android.gm.lite" />
+        <!-- Home Depot: a Home Depot order notification opens this app when tapped. -->
+        <package android:name="com.thehomedepot" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

@@ -2,16 +2,16 @@
 <resources>
     <string name="app_name">Notification Keeper</string>
 
-    <string name="about">Gmail: on this Googlebook the Gmail app shows the web Gmail and can\'t notify while it\'s closed, so Gmail Go (Google\'s lite Gmail, kept in the background) receives Google\'s new-mail pushes. Notification Keeper shows each of its notifications: it pops up, stays until you deal with it, opens that exact email in the web Gmail when tapped, and its Reply, Delete and Mark as read buttons do that in the web Gmail. Websites and web apps (Chrome, Calendar, Meet and others) often take their own notifications back a few seconds after showing them; Notification Keeper puts a quiet copy back so it stays until you tap it or clear it. It also saves Gmail\'s and Gmail Go\'s notification settings and puts them back if they\'re reset. It works in the background on its own, so you can close this window at any time. It has no internet access and stores no message content.</string>
+    <string name="about">Gmail: on this Googlebook the Gmail app shows the web Gmail and can\'t notify while it\'s closed, so Gmail Go (Google\'s lite Gmail, kept in the background) receives Google\'s new-mail pushes. Notification Keeper shows each of its notifications: it pops up, stays until you deal with it, opens that exact email in the web Gmail when tapped, and its Reply, Delete and Mark as read buttons do that in the web Gmail. Websites and web apps (Chrome, Calendar, Meet, GeForce NOW and others) often take their own notifications back a few seconds after showing them; Notification Keeper puts a quiet copy back so it stays until you tap it or clear it. It also saves Gmail\'s and Gmail Go\'s notification settings and puts them back if they\'re reset. It works in the background on its own - you can close this window any time. It has no internet access and stores no message content.</string>
 
     <string name="ok_access">✓ Notification access is on</string>
-    <string name="bad_access">✗ Notification access is off, so nothing can be kept</string>
+    <string name="bad_access">✗ Notification access is off - nothing can be kept</string>
     <string name="ok_notifs">✓ Allowed to show notifications</string>
     <string name="bad_notifs">✗ Not allowed to show notifications</string>
     <string name="button_fix">Fix</string>
 
     <string name="gmail_full">✓ Gmail is the full app (%1$s): new mail notifies even when Gmail is closed, and Gmail\'s notifications stay on their own.</string>
-    <string name="gmail_web">✗ Gmail is the web-only version (%1$s): no notifications while Gmail is closed, and they vanish after a few seconds. Turn off auto-update for Gmail in the Play Store and reinstall the full Gmail app.</string>
+    <string name="gmail_web">✗ Gmail is the web-only version (%1$s): no notifications while Gmail is closed, and they vanish after a few seconds. Turn off auto-update for Gmail in the Play Store and ask Claude to reinstall the full Gmail app (a copy is in Documents → Notification Keeper).</string>
     <string name="gmail_missing">Gmail isn\'t installed or is turned off.</string>
 
     <string name="guard_saved">✓ Gmail notification settings saved: %1$d categories, %2$d account groups (last change %3$s). If Gmail ever resets them, they\'re put back automatically.</string>
@@ -30,13 +30,13 @@
     <string name="test_source">Test website</string>
 
     <string name="gmail_go_ok">✓ Gmail notifications come from Gmail Go (%1$s) even while Gmail is closed: they pop up, stay, and open in the web Gmail. Shown so far: %2$d.</string>
-    <string name="gmail_go_missing">✗ Gmail Go isn\'t installed, so Gmail can\'t notify while it\'s closed. Follow the Gmail setup guide to reinstall it.</string>
-    <string name="gmail_go_blocked">✗ Gmail Go can\'t post notifications (perhaps the Play Store updated it to a version that doesn\'t ask for permission). Follow the Gmail setup guide to fix it.</string>
+    <string name="gmail_go_missing">✗ Gmail Go isn\'t installed, so Gmail can\'t notify while it\'s closed. Ask Claude to reinstall it (notif-restore).</string>
+    <string name="gmail_go_blocked">✗ Gmail Go can\'t post notifications (perhaps the Play Store updated it to a version that doesn\'t ask for permission). Ask Claude to fix it (notif-restore).</string>
 
     <string name="helper_label">Notification Keeper: Gmail helper</string>
     <string name="helper_desc">Carries out your Gmail notification taps and buttons in the web Gmail\'s Inbox: it finds that email there (on older pages too), tapping opens it, and Reply, Delete and Mark as read are picked in the web Gmail\'s own right-click menu for that email. It also clears a Gmail notification once you\'ve opened that email there. It only touches the web Gmail window while it\'s in front, only for this, and stores nothing.</string>
     <string name="helper_on">✓ Gmail helper is on: tapping opens the exact email; Reply, Delete and Mark as read work in the web Gmail.</string>
-    <string name="helper_off">✗ Gmail helper is off: tapping or a button only opens the web Gmail\'s Inbox. Open Settings, then Accessibility, and turn on "Notification Keeper: Gmail helper".</string>
+    <string name="helper_off">✗ Gmail helper is off: tapping or a button only opens the web Gmail\'s Inbox. Turn on "Notification Keeper: Gmail helper" in Settings → Accessibility.</string>
     <string name="action_reply">Reply</string>
     <string name="action_delete">Delete</string>
     <string name="action_mark_read">Mark as read</string>
@@ -49,8 +49,8 @@
     </plurals>
 
     <string name="alert_go_title">Gmail notifications stopped working</string>
-    <string name="alert_go_missing">Gmail Go was removed, so new mail won\'t notify while Gmail is closed. Follow the Gmail setup guide to put it back.</string>
-    <string name="alert_go_blocked">Gmail Go can\'t post notifications any more (perhaps the Play Store updated it). New mail won\'t notify while Gmail is closed. Follow the Gmail setup guide to fix it.</string>
+    <string name="alert_go_missing">Gmail Go was removed, so new mail won\'t notify while Gmail is closed. Ask Claude to put it back (notif-restore).</string>
+    <string name="alert_go_blocked">Gmail Go can\'t post notifications any more (perhaps the Play Store updated it). New mail won\'t notify while Gmail is closed. Ask Claude to fix it (notif-restore).</string>
 
     <string name="channel_kept">Kept web notifications</string>
     <string name="channel_kept_desc">Quiet copies of website notifications that the website took back.</string>
@@ -58,7 +58,14 @@
     <string name="channel_test">Test</string>
 
     <string name="alert_gmail_title">Gmail was switched back to the web version</string>
-    <string name="alert_gmail_text">Gmail notifications won\'t arrive while Gmail is closed, and they\'ll vanish after a few seconds. Turn off auto-update for Gmail in the Play Store and reinstall the full Gmail app.</string>
+    <string name="alert_gmail_text">Gmail notifications won\'t arrive while Gmail is closed, and they\'ll vanish after a few seconds. Turn off auto-update for Gmail in the Play Store and ask Claude to reinstall the full Gmail app (a copy is in Documents → Notification Keeper).</string>
     <string name="alert_access_title">Notification Keeper is switched off</string>
     <string name="alert_access_text">It lost its notification access, so web notifications won\'t be kept. Tap to open it and turn access back on.</string>
+
+    <string name="hd_brand">The Home Depot</string>
+    <string name="channel_homedepot">Home Depot orders</string>
+    <string name="channel_homedepot_desc">Home Depot order updates (order confirmed, shipped, out for delivery, delivered, ready for pickup), shown from the order emails Home Depot sends, because the Home Depot app\'s own push notifications never reach this Googlebook. They are shown in addition to your email notification, which still arrives as usual, and they work with any email app on this Googlebook, such as Gmail and Outlook.</string>
+    <string name="hd_tap_hint">Tap to open the Home Depot app</string>
+    <string name="hd_ok">✓ Home Depot orders: order update emails from any email app are also shown as Home Depot notifications that open the app when tapped, and your email notification still arrives as usual. Shown so far: %1$d.</string>
+    <string name="hd_none">Home Depot orders: ready. When a Home Depot order update email arrives in any email app on this Googlebook, such as Gmail or Outlook, it is also shown here as a Home Depot notification that opens the app when tapped. Your email notification still arrives as usual.</string>
 </resources>

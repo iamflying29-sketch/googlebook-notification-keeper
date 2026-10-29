@@ -32,7 +32,7 @@ public class MainActivity extends Activity {
             handler.postDelayed(this, REFRESH_MS);
         }
     };
-    private TextView access, notifs, gmail, guard, stats;
+    private TextView access, notifs, gmail, homedepot, guard, stats;
     private Button fixAccess, fixNotifs;
     private int pad;
 
@@ -67,6 +67,10 @@ public class MainActivity extends Activity {
         gmail = text("", 16, false);
         gmail.setPadding(0, pad / 2, 0, pad / 2);
         root.addView(gmail);
+
+        homedepot = text("", 16, false);
+        homedepot.setPadding(0, 0, 0, pad / 2);
+        root.addView(homedepot);
 
         guard = text("", 16, false);
         guard.setPadding(0, 0, 0, pad / 2);
@@ -143,6 +147,9 @@ public class MainActivity extends Activity {
         } else {
             gmail.setText(getString(go == GmailMirror.Engine.MISSING ? R.string.gmail_go_missing : R.string.gmail_go_blocked));
         }
+        int hdShown = Keeper.prefs(this).getInt("hd_count", 0);
+        homedepot.setText(hdShown > 0 ? getString(R.string.hd_ok, hdShown) : getString(R.string.hd_none));
+
         if (listener && canPost) Keeper.runGuard(this);
 
         android.content.SharedPreferences gp = Keeper.prefs(this);

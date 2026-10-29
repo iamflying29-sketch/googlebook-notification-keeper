@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A white rounded tile behind the Home Depot logo, so the logo stands out cleanly on the orange
+     card. Used only by the Home Depot notification. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+    <corners android:radius="11dp" />
+</shape>

@@ -96,6 +96,34 @@ public class DebugReceiver extends BroadcastReceiver {
             Log.i(Keeper.TAG, "terminal VM running: " + GhostReceiver.terminalVmRunning());
             return;
         }
+        if (i.getBooleanExtra("hddetect", false)) {
+            // adb recognition test (no card posted): checks the full "is this a Home Depot order email
+            // from an email app" test with plain values, so any email app can be checked without a
+            // real email (adb shell am broadcast -n local.notifkeeper/.DebugReceiver --ez hddetect true
+            //    [--es pkg com.microsoft.office.outlook] [--es category email] [--es channel <id>]
+            //    [--es address orders@homedepot.com] [--es sender "The Home Depot"]).
+            Log.i(Keeper.TAG, "home depot recognize test: " + HomeDepotBridge.looksLikeHomeDepotEmail(
+                    i.getStringExtra("pkg"), i.getStringExtra("category"), i.getStringExtra("channel"),
+                    i.getStringExtra("address"), i.getStringExtra("sender")));
+            return;
+        }
+        if (i.hasExtra("hd")) {
+            // adb test: post a Home Depot order notification without waiting for a real email
+            // (adb shell am broadcast -n local.notifkeeper/.DebugReceiver --es hd "<subject>"
+            //    [--es sender "The Home Depot"] [--es account you@gmail.com] [--es address noreply@homedepot.com]).
+            // With an address or sender it also logs whether the Home Depot sender test matches.
+            if (i.hasExtra("address") || i.hasExtra("sender")) {
+                Log.i(Keeper.TAG, "home depot sender test: " + HomeDepotBridge.isHomeDepotSender(
+                        i.getStringExtra("address"), i.getStringExtra("sender")));
+            }
+            HomeDepotBridge.showTest(c, i.getStringExtra("sender"), i.getStringExtra("hd"), i.getStringExtra("account"));
+            return;
+        }
+        if (i.hasExtra("hdclear")) {
+            // adb test cleanup: remove any Home Depot test notifications (adb ... --ez hdclear true).
+            HomeDepotBridge.clearTests(c);
+            return;
+        }
         if ("markread".equals(i.getStringExtra("ghost"))) {
             // Test the ghost Mark-as-read path: send it both ways, exactly as the button does.
             GhostReceiver.markReadNow(c, i.getStringExtra("account"), i.getStringExtra("address"),

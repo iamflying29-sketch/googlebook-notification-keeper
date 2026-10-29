@@ -71,6 +71,7 @@ final class Keeper {
                 c.getString(R.string.channel_test), NotificationManager.IMPORTANCE_HIGH);
         test.setSound(null, null);
         nm.createNotificationChannel(test);
+        HomeDepotBridge.createChannel(c);
     }
 
     /** The website origin if this is a web notification, else null. */

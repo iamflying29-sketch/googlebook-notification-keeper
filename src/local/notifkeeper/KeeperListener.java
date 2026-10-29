@@ -32,6 +32,14 @@ public class KeeperListener extends NotificationListenerService {
         // re-register against this one. Otherwise read detection goes dead after the first reconnect.
         GoCounts.reset(this);
         ReadSense.reset();
+        // Home Depot order emails already showing (from any email app): add the Home Depot card for
+        // each, quietly. It only adds cards and never touches the email notifications. Its own try, so
+        // a failure here can never stop the Gmail catch-up below.
+        try {
+            HomeDepotBridge.catchUp(this);
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "home depot: catching up failed", e);
+        }
         try {
             GmailMirror.reloadLive(this);
             GmailMirror.reloadTracking(this);
@@ -119,6 +127,11 @@ public class KeeperListener extends NotificationListenerService {
     @Override
     public void onNotificationPosted(StatusBarNotification sbn, RankingMap rankingMap) {
         try {
+            // A Home Depot order email also gets its own Home Depot notification, in addition to the
+            // normal email notification. This only adds a card: it never hides or changes the email,
+            // and it works whether the email came through Gmail Go or another email app such as
+            // Outlook. The Gmail handling below still runs exactly as before for every notification.
+            HomeDepotBridge.onPosted(this, sbn);
             String pkg = sbn.getPackageName();
             if (Keeper.GMAIL_GO.equals(pkg)) {
                 GmailMirror.onPosted(this, sbn, rankingMap, true);
@@ -134,7 +147,10 @@ public class KeeperListener extends NotificationListenerService {
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn, RankingMap rankingMap, int reason) {
         try {
-            if (getPackageName().equals(sbn.getPackageName())) GmailMirror.onCopyRemoved(this, sbn, reason);
+            if (getPackageName().equals(sbn.getPackageName())) {
+                GmailMirror.onCopyRemoved(this, sbn, reason);     // ignores Home Depot (hd:) tags
+                HomeDepotBridge.onCopyRemoved(this, sbn, reason); // ignores Gmail mirror (gm:) tags
+            }
             if (Keeper.GMAIL_GO.equals(sbn.getPackageName())) GmailMirror.onGoNotificationRemoved(this, sbn, reason);
             if (Keeper.shouldKeep(this, sbn, reason)) Keeper.keep(this, sbn);
         } catch (RuntimeException e) {

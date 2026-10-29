@@ -9,7 +9,9 @@ it goes much further, but its goal is to preserve notifications for every Chrome
 GooglebookOS. The generic keeping already works for any web app. The richer per-app features are
 written only for Gmail, and other developers will need to edit the code to bring them to other web
 apps. This README explains the generic keeper in full, explains the Gmail features, and shows exactly
-where in the code a developer would start. The current version is 1.2.
+where in the code a developer would start. It also has a separate feature that shows Home Depot order
+updates as their own notifications, because the Home Depot app's own notifications never reach my
+Googlebook, and that feature has its own section below. The current version is 1.2.
 
 ## What it does
 
@@ -30,6 +32,13 @@ settings, and it contains a Gmail helper that carries out those buttons in the G
 Gmail features are part of a larger setup that is documented in its own repository,
 [googlebook-gmail-web-app-notifications](https://github.com/iamflying29-sketch/googlebook-gmail-web-app-notifications).
 You can use Notification Keeper without any of that.
+
+It also shows Home Depot order updates as their own notifications. The Home Depot app's own
+notifications never reach my Googlebook, so its order updates only arrive by email. When an order
+update email from Home Depot arrives in any email app on the Googlebook, the Keeper shows it as a
+Home Depot order notification in the brand's colors that opens the Home Depot app when I tap it, in
+addition to the email's own notification, which still arrives as usual. This feature has its own
+section below, and it is separate from the web app keeping and from the Gmail features.
 
 ## The problem
 
@@ -170,6 +179,89 @@ The mirror and its buttons only work when Gmail Go is installed and allowed to p
 the settings guard only works with the companion link, and the Gmail helper only works if you turn it
 on yourself. The generic keeper works without any of them. The Gmail checks are the exception: they
 run for everyone, as described in [Limitations and known issues](#limitations-and-known-issues).
+
+## Home Depot order notifications
+
+This is a separate feature from the web app keeping above, and it does not involve Chrome at all. It
+shows Home Depot order updates on the Googlebook as their own notifications, in Home Depot's colors,
+that open the Home Depot app when I tap them.
+
+### Why it exists
+
+The Home Depot Android app registers for push notifications in the normal way, but on my Googlebook
+it never receives a single one. I watched Google's push service on the laptop across two sessions and
+several clean reinstalls of the app. Every other app's push messages arrived, including ones that
+were queued while the screen was off, but not one ever arrived for the Home Depot app. Nothing on the
+laptop blocks it, so there is simply nothing from the Home Depot app itself for a notification
+listener to catch.
+
+What does arrive reliably is Home Depot's order update emails, such as order confirmed, shipped, out
+for delivery, delivered, and ready for pickup. Home Depot's own help pages name email and text
+messages as the ways they send order updates, and my laptop has no SIM card for text messages, so
+email is the signal that is always there. This feature turns those order emails into Home Depot
+notifications.
+
+### How it works
+
+* **It is purely additive.** The email's own notification still arrives exactly as before. The Home
+  Depot card is shown in addition to it, and the feature never hides, cancels, snoozes or changes the
+  email's notification. For every notification that is not a Home Depot order email, it does nothing
+  at all.
+* **It works with any email app**, not only the Gmail setup described above. It treats a notification
+  as mail when it comes from Gmail Go on one of its per-account mail categories, from one of a list of
+  common email apps (the full Gmail app, Microsoft Outlook, Outlook Lite, Yahoo Mail, Samsung Email,
+  the stock Email app, Proton Mail, Aqua Mail, FairEmail, K-9 Mail, BlueMail and Zoho Mail), or from
+  any other app that marks its notification as an email. The list does not have to be complete,
+  because the last rule catches the rest. I tested it with Gmail Go and with Outlook.
+* **It recognizes Home Depot as the sender** in one of two ways. When the email app exposes the
+  sender's address, the card is shown only if that address is at `homedepot.com` or one of its
+  subdomains, which only Home Depot can send from. When the app gives only a display name, as Outlook
+  does, the card is shown if the name says Home Depot. The test is deliberately conservative, so that
+  the worst a wrong guess can do is show an ordinary email as a Home Depot card, while a real order
+  update is never missed. Look-alike addresses such as `homedepot.com.example.com` and
+  `fakehomedepot.com` are correctly rejected.
+* **The card is built from my own layout**, filled with Home Depot's orange, with white text and the
+  Home Depot logo on a white tile. It shows the order status as its headline and a short line that
+  says to tap to open the Home Depot app. It does not show the email address or the account, and it is
+  not marked as an email, because it is an order update rather than a piece of mail. Android colors the
+  whole background of an ordinary notification only for a few special kinds, such as media and
+  foreground service notifications, so a custom layout is the only way to show this card in Home
+  Depot's colors.
+* **Tapping the card opens the Home Depot app** through the app's own launcher entry, the same way the
+  launcher opens it, and clears the card. My
+  [Home Depot phone mode fix](https://github.com/iamflying29-sketch/googlebook-projects/tree/main/smaller-fixes/homedepot-phone-mode)
+  keeps the app in a phone-sized window once it opens. If the Home Depot app is not installed, the
+  card opens homedepot.com instead.
+* **A card you swipe away stays away.** If I swipe a Home Depot card off the screen, the Keeper
+  remembers it and does not put that card back if the email's notification reappears later, for
+  example when an email app reconnects. The choice is kept if the Keeper restarts, and the email's own
+  notification is never affected.
+* **Old emails are handled quietly.** When an order email is already on the screen and the listener
+  reconnects, the Keeper adds its card without popping it up again, and it treats an email that is
+  more than ten minutes old the same way, so a reconnecting email app never makes a stale order pop up.
+
+### The logo
+
+The logo on the card is the Home Depot app's own icon. The Keeper reads it from the installed Home
+Depot app at the moment it builds the card, which is the same icon the launcher shows, so the genuine
+logo appears and this project includes no image of its own. If the Home Depot app is not installed,
+the card falls back to a plain orange tile with a simple drawing of a shipping box, which is my own
+generic drawing.
+
+### What I verified, and what I did not
+
+I verified each part of this on my Googlebook. The listener receives the email notifications, the
+sender is read correctly, the recognition test gives the right answer for Home Depot senders and the
+right answer for ordinary senders and for look-alike addresses, and the card renders in Home Depot's
+colors, pops up, stays until I deal with it, and opens the app when tapped. Two adb test triggers made
+this possible without a real email: one runs the exact recognition test the live code uses, with plain
+values, so any email app can be checked, and the other posts a finished card directly. Their usage is
+written at the top of `DebugReceiver.java`.
+
+What I have not yet seen is the whole chain with a real Home Depot order email, from the email
+arriving to the card appearing, because a genuine email-app notification cannot be forced and no new
+order email arrived while I was building this. Every link in the chain is proven on its own, so the
+feature is ready for the next real order email.
 
 ## Requirements
 
@@ -556,14 +648,21 @@ colons.
   permission then needs the one-time adb grant shown in Troubleshooting. I have not tested that case.
 * **What notification access means.** Like every notification listener, the Keeper is shown every
   notification on the device. It acts only on web notifications that their own site withdraws and,
-  with the Gmail features, on notifications from Gmail Go and the Gmail web app. Everything else is
-  ignored.
+  with the Gmail features, on notifications from Gmail Go and the Gmail web app, and, with the Home
+  Depot feature, on order update emails from Home Depot in any email app. Everything else is ignored.
 * **What it stores.** In its private app storage it keeps counters, the time and source (the app name
   and website host) of the last kept copy, and, with the companion link, the saved notification
   categories of Gmail and Gmail Go. Those saved categories include their names and identifiers, and
   Gmail Go's identifiers contain your account addresses. The read detection stores a short list of
   numbers: how long after arrival the last few emails were read. It stores no notification titles or
   texts in its files. The app sets `allowBackup` to false, so Android backup does not copy its data.
+* **The Home Depot feature** reads the sender address, display name, subject and account of mail
+  notifications so that it can recognize Home Depot's order emails, and it acts only on the ones that
+  match. In its private storage it keeps only a count of the cards it has shown, the time of the last
+  one, and a short list of the identifiers of the order cards you have swiped away, so that it does not
+  put those back. Those identifiers are Android's own notification keys, which for some email apps
+  contain the account address. It stores no email subjects, senders or message text, and it has no
+  part in the Gmail setup.
 * **What it writes to the system log.** It logs the source of each kept copy. With the Gmail features, the
   Mark as read button writes the account, the sender's address, the subject and the arrival time
   under the tag `GmailGhostCmd`, because that is how the Linux Terminal service receives the command,
@@ -612,6 +711,14 @@ colons.
   the re-post does happen. Uninstalling the Keeper lets any hidden ones reappear when their snooze ends.
 * **The unread-count permission** is declared by the Keeper itself, which only works because Gmail
   had not registered it on my device. See Safety and privacy notes.
+* **Home Depot order notifications need an email app.** A Home Depot card appears only when an order
+  update email from Home Depot arrives in an email app on the Googlebook that posts a notification for
+  it. On my Googlebook, Gmail Go covers my Gmail accounts and Outlook covers my other account. There
+  is no path for Home Depot's text messages, because the laptop has no SIM card.
+* **I have not seen the Home Depot feature work end to end with a real order email.** I verified each
+  part on its own, including with adb tests that run the real recognition test and post the real card,
+  but I have not yet watched a genuine order email become a card, because an email-app notification
+  cannot be forced. See [Home Depot order notifications](#home-depot-order-notifications).
 * **The app is in English only**, and I have tested it only on my Googlebook.
 * **There is no prebuilt APK.** You build it yourself with `build.sh`.
 
@@ -706,10 +813,12 @@ welcome.
 | `src/local/notifkeeper/GhostReceiver.java` | Gmail: the Mark as read command for the Linux Terminal service |
 | `src/local/notifkeeper/ActionReceiver.java` | Gmail: runs Gmail Go's own background buttons |
 | `src/local/notifkeeper/SettingsGuard.java` | Gmail: saves and restores Gmail's and Gmail Go's notification categories |
-| `src/local/notifkeeper/DebugReceiver.java` | Gmail: test trigger that only adb can call |
+| `src/local/notifkeeper/DebugReceiver.java` | Gmail and Home Depot: test triggers that only adb can call |
+| `src/local/notifkeeper/HomeDepotBridge.java` | Home Depot: shows Home Depot order update emails from any email app as Home Depot notifications |
 | `res/values/strings.xml` | All app text |
 | `res/xml/web_gmail_helper.xml` | Accessibility settings for the Gmail helper |
-| `res/drawable/` | The app icon and the notification icons (vector drawables) |
+| `res/layout/` | The Home Depot order card, collapsed and expanded |
+| `res/drawable/` | The app icon, the notification icons and the Home Depot logo tile (vector drawables) |
 | `LICENSE` | MIT License |
 | `.gitignore` | Keeps build outputs, keystores and logs out of the repository |
 
