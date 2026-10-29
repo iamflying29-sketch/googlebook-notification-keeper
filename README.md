@@ -735,27 +735,27 @@ version 1.2.
 
 The whole keeping path is generic and needs no changes for a new web app:
 
-* `Keeper.webOrigin()` (`Keeper.java`, line 75) reads the origin from Chrome's tag pattern `WEB_TAG`
-  (line 46) or from a `Web:` group.
-* `Keeper.shouldKeep()` (line 89) accepts only removals with reason 8 or 9.
-* `Keeper.keep()` (line 113) builds the copy, and `OpenActivity` opens the source when it is tapped.
-* `KeeperListener.onNotificationRemoved()` (`KeeperListener.java`, line 130) calls both for every
+* `Keeper.webOrigin()` (`Keeper.java`, line 78) reads the origin from Chrome's tag pattern `WEB_TAG`
+  (line 48) or from a `Web:` group.
+* `Keeper.shouldKeep()` (line 92) accepts only removals with reason 8 or 9.
+* `Keeper.keep()` (line 116) builds the copy, and `OpenActivity` opens the source when it is tapped.
+* `KeeperListener.onNotificationRemoved()` (`KeeperListener.java`, line 148) calls both for every
   removed notification, from any package.
 
 ### Where the Gmail-specific code lives
 
 | File | Gmail-specific code |
 | --- | --- |
-| `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 106 and 108). `gmailState()` (line 234) and the Gmail half of `runGuard()` (line 266). `MAX_KEPT` (line 43) shares the 50-notification budget with the Gmail copies. |
-| `KeeperListener.java` | `onNotificationPosted()` (line 115) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 39) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 87) passes Gmail Go's category changes to `GhostReceiver`. |
-| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 64 and 65), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 68), the engine check `engine()` (line 242), the hiding `hideGo()` (line 95) and the read probe `probe()` (line 112), the copy builder `mirror()` (line 364), the duplicate removal `onWebGmailPosted()` (line 674), `openWebGmail()` (line 788), `inboxUrl()` (line 810), `accountOf()` (line 835) and `MAX_MIRRORED` (line 55). |
+| `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 109 and 111). `gmailState()` (line 237) and the Gmail half of `runGuard()` (line 269). `MAX_KEPT` (line 45) shares the 50-notification budget with the Gmail copies. |
+| `KeeperListener.java` | `onNotificationPosted()` (line 128) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 52) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 100) passes Gmail Go's category changes to `GhostReceiver`. |
+| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 65 and 66), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 69), the engine check `engine()` (line 266), the hiding `hideGo()` (line 103) and the read probe `probe()` (line 120), the copy builder `mirror()` (line 417), the duplicate removal `onWebGmailPosted()` (line 785), `openWebGmail()` (line 907), `inboxUrl()` (line 941), `accountOf()` (line 966) and `MAX_MIRRORED` (line 55). |
 | `GoCounts.java`, `ReadSense.java` | The read detection: Gmail Go's provider authority and label names, the count snapshots, and the timing of the checks. |
-| `SettingsGuard.java` | The guarded packages `PKGS` (line 43), their file names in `file()` (line 54) and display names in `label()` (line 58), my "pop on screen" rule in `newCategoryRule()` (line 262), the Gmail Go silencing in `silenceOriginals()` (line 205), and `summary()` (line 360), which reads only Gmail's file. |
+| `SettingsGuard.java` | The guarded packages `PKGS` (line 43), their file names in `file()` (line 54) and display names in `label()` (line 58), my "pop on screen" rule in `newCategoryRule()` (line 266), the Gmail Go silencing in `silenceOriginals()` (line 209), and `summary()` (line 364), which reads only Gmail's file. |
 | `WebGmailHelper.java` and `res/xml/web_gmail_helper.xml` | The accessibility helper. It reads Gmail's web page structure, and the XML limits it to the packages `com.android.chrome` and `com.google.android.gm`. |
 | `GhostReceiver.java`, `ActionReceiver.java`, `DebugReceiver.java` | Mark as read, Gmail Go's background buttons, and the adb test trigger. |
-| `OpenActivity.java` | `isBrowser()` (line 70) decides whether a source is Chrome. The Gmail branches use the `url` and `kind` extras. |
-| `MainActivity.java` | `refresh()` shows the Gmail line (line 136) and the settings guard line (line 150). |
-| `AndroidManifest.xml` | The `<queries>` block (line 19) names Gmail and Gmail Go, so the app may look them up, and the `<permission>` element (line 13) declares Gmail's unread-count permission. |
+| `OpenActivity.java` | `isBrowser()` (line 83) decides whether a source is Chrome. The Gmail branches use the `url` and `kind` extras. |
+| `MainActivity.java` | `refresh()` shows the Gmail line (line 142) and the settings guard line (line 165). |
+| `AndroidManifest.xml` | The `<queries>` block (line 23) names Gmail and Gmail Go, so the app may look them up, and the `<permission>` element (line 17) declares Gmail's unread-count permission. |
 | `res/values/strings.xml` | All Gmail texts and alerts. |
 
 ### What you would write to add another web app
