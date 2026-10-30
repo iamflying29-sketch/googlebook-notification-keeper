@@ -227,8 +227,14 @@ notifications.
   whole background of an ordinary notification only for a few special kinds, such as media and
   foreground service notifications, so a custom layout is the only way to show this card in Home
   Depot's colors.
-* **Tapping the card opens the Home Depot app** through the app's own launcher entry, the same way the
-  launcher opens it, and clears the card. My
+* **Tapping the card opens the exact place in the Home Depot app** when my small companion app,
+  [Home Depot Helper](https://github.com/iamflying29-sketch/googlebook-homedepot-helper), is
+  installed: the order itself for an email that names an order number, the purchase history for an
+  order email that does not, and for a sign-in verification code it copies the code and types it into
+  the app's code field. The Keeper hands the helper only the email's subject and preview, and the
+  helper does the rest, so none of that logic lives in the Keeper. Without the helper, tapping the card
+  opens the Home Depot app through the app's own launcher entry, the same way the launcher opens it.
+  Either way the tap clears the card. My
   [Home Depot phone mode fix](https://github.com/iamflying29-sketch/googlebook-projects/tree/main/smaller-fixes/homedepot-phone-mode)
   keeps the app in a phone-sized window once it opens. If the Home Depot app is not installed, the
   card opens homedepot.com instead.

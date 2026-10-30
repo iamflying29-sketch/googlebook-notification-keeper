@@ -56,6 +56,8 @@ final class HomeDepotBridge {
     /** A fixed id, distinct from the Gmail mirror's (1) and the alerts (1, 2); the tag makes each unique. */
     private static final int ID = 7;
     private static final String GROUP = "hd";
+    /** The Home Depot Helper app, which takes a tap to the exact place in the Home Depot app (optional). */
+    private static final String HELPER_PACKAGE = "local.hdhelper";
     /** Home Depot's brand orange, as the app itself sets for its notifications (airshipconfig.properties). */
     private static final int HD_ORANGE = 0xFFF96302;
     /** Gmail Go's per-account mail category id prefix; the account follows it. */
@@ -286,12 +288,11 @@ final class HomeDepotBridge {
     private static void show(Context c, String tag, CharSequence sender, CharSequence subject, CharSequence big,
             long when, boolean alert) {
         createChannel(c);
-        // Tap opens the Home Depot app (reusing the open logic the Keeper already uses); if the app is
-        // not installed it opens homedepot.com instead. Auto-cancel clears this card when you tap it.
-        Intent open = new Intent(c, OpenActivity.class)
-                .putExtra(OpenActivity.EXTRA_PACKAGE, "com.thehomedepot")
-                .putExtra(OpenActivity.EXTRA_ORIGIN, "https://www.homedepot.com")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // Tap: with the Home Depot Helper app installed, the tap goes to the exact place in the Home
+        // Depot app (the order itself, the purchase history, or the sign-in code field); without it,
+        // the tap opens the Home Depot app as before, or homedepot.com if the app is not installed.
+        // Auto-cancel clears this card when you tap it.
+        Intent open = tapIntent(c, subject, big);
         PendingIntent tap = PendingIntent.getActivity(c, tag.hashCode(), open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
@@ -341,6 +342,30 @@ final class HomeDepotBridge {
                 .setContentIntent(tap);
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(tag, ID, b.build());
+    }
+
+    /**
+     * What a tap on the card opens. The Home Depot Helper app (local.hdhelper, a separate small app)
+     * reads the email's subject and preview and takes the Home Depot app to the exact place: the order
+     * named in the email, the purchase history when no order number is named, or the sign-in code
+     * field for a verification code. The Keeper only hands it the subject and preview, nothing else.
+     * When the helper is not installed, the tap opens the Home Depot app itself, exactly as before.
+     */
+    private static Intent tapIntent(Context c, CharSequence subject, CharSequence big) {
+        Intent helper = new Intent()
+                .setClassName(HELPER_PACKAGE, HELPER_PACKAGE + ".OpenActivity")
+                .putExtra("subject", subject)
+                .putExtra("text", big)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            if (c.getPackageManager().resolveActivity(helper, 0) != null) return helper;
+        } catch (RuntimeException e) {
+            // fall through to opening the app itself
+        }
+        return new Intent(c, OpenActivity.class)
+                .putExtra(OpenActivity.EXTRA_PACKAGE, "com.thehomedepot")
+                .putExtra(OpenActivity.EXTRA_ORIGIN, "https://www.homedepot.com")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     }
 
     /**

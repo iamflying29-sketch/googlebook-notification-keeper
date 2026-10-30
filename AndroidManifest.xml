@@ -26,6 +26,8 @@
         <package android:name="com.google.android.gm.lite" />
         <!-- Home Depot: a Home Depot order notification opens this app when tapped. -->
         <package android:name="com.thehomedepot" />
+        <!-- Home Depot Helper: takes a Home Depot order notification to the exact place in the app. -->
+        <package android:name="local.hdhelper" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
