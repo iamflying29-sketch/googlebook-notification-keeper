@@ -238,6 +238,11 @@ notifications.
   [Home Depot phone mode fix](https://github.com/iamflying29-sketch/googlebook-projects/tree/main/smaller-fixes/homedepot-phone-mode)
   keeps the app in a phone-sized window once it opens. If the Home Depot app is not installed, the
   card opens homedepot.com instead.
+* **One email gives one card.** The same email often arrives through two email apps at once, for
+  example web Gmail and Gmail Go. The Keeper compares the emails' subjects, ignoring case and spacing,
+  and shows a card only for the first copy. A copy that arrives later from the other app adds nothing,
+  and if two cards are already showing when the listener reconnects, it removes the extra one. When I
+  tap or swipe away the card, the other app's copy of that email cannot bring it back either.
 * **A card you swipe away stays away.** If I swipe a Home Depot card off the screen, the Keeper
   remembers it and does not put that card back if the email's notification reappears later, for
   example when an email app reconnects. The choice is kept if the Keeper restarts, and the email's own

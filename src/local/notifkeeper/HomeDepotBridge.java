@@ -20,9 +20,11 @@ import android.util.Log;
 import android.widget.RemoteViews;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -93,6 +95,15 @@ final class HomeDepotBridge {
     private static final Set<String> live = new HashSet<>();
     /** Tags we are removing ourselves, so our own removal is never taken for a swipe you made. */
     private static final Set<String> selfRemoving = new HashSet<>();
+    /**
+     * The email behind each of our cards in the tray (tag to subject key). One email often arrives
+     * through two email apps at once (web Gmail and Gmail Go), and it must still give one card only.
+     */
+    private static final Map<String, String> liveSubjects = new HashMap<>();
+    /** Emails whose card you just tapped or swiped away (subject key to time), so a late copy of the
+     *  same email from another email app does not bring the card back. */
+    private static final Map<String, Long> recentlyDismissed = new HashMap<>();
+    private static final long DISMISS_MEMORY_MS = 30 * 60 * 1000L;
 
     private HomeDepotBridge() {}
 
@@ -217,12 +228,33 @@ final class HomeDepotBridge {
             return;
         }
         if (all == null) return;
+        List<String> duplicates = new ArrayList<>();
         synchronized (LOCK) {
             live.clear();
+            liveSubjects.clear();
             for (StatusBarNotification x : all) {
-                if (x.getTag() != null && x.getTag().startsWith(TAG_PREFIX)) live.add(x.getTag());
+                if (x.getTag() != null && x.getTag().startsWith(TAG_PREFIX)
+                        && x.getPackageName().equals(s.getPackageName())) {
+                    live.add(x.getTag());
+                    String key = subjectKey(x.getNotification().extras.getCharSequence(Notification.EXTRA_TEXT));
+                    if (key != null && liveSubjects.containsValue(key)) {
+                        duplicates.add(x.getKey()); // a second card for an email that already has one
+                        live.remove(x.getTag());
+                        selfRemoving.add(x.getTag());
+                    } else if (key != null) {
+                        liveSubjects.put(x.getTag(), key);
+                    }
+                }
             }
         }
+        for (String k : duplicates) {
+            try {
+                s.cancelNotification(k);
+            } catch (RuntimeException e) {
+                Log.w(Keeper.TAG, "home depot: could not remove a duplicate card", e);
+            }
+        }
+        if (!duplicates.isEmpty()) Log.i(Keeper.TAG, "home depot: removed " + duplicates.size() + " duplicate card(s)");
         int n = 0;
         for (StatusBarNotification sbn : all) {
             if (sbn.getPackageName().equals(s.getPackageName())) continue;
@@ -248,8 +280,20 @@ final class HomeDepotBridge {
             // do not put our card back when the email notification re-posts.
             return false;
         }
+        String subjectKey = subjectKey(n.extras.getCharSequence(Notification.EXTRA_TEXT));
         synchronized (LOCK) {
             if (live.contains(tag)) return false; // our card is already up
+            if (subjectKey != null && liveSubjects.containsValue(subjectKey)) {
+                // The same email through a second email app (web Gmail and Gmail Go): one card only.
+                Log.i(Keeper.TAG, "home depot: this email already has a card (it also came from "
+                        + sbn.getPackageName() + "), so no second card");
+                return false;
+            }
+            Long gone = subjectKey != null ? recentlyDismissed.get(subjectKey) : null;
+            if (gone != null && System.currentTimeMillis() - gone < DISMISS_MEMORY_MS) {
+                addDismissed(s, srcKey);
+                return false; // you already tapped or cleared this email's card
+            }
         }
         if ((n.flags & (Notification.FLAG_ONGOING_EVENT | Notification.FLAG_FOREGROUND_SERVICE)) != 0) {
             return false; // a sync or sending status, not a received email
@@ -273,6 +317,7 @@ final class HomeDepotBridge {
         show(s, tag, sender, subject, big, when, mayAlert);
         synchronized (LOCK) {
             live.add(tag);
+            if (subjectKey != null) liveSubjects.put(tag, subjectKey);
         }
         if (mayAlert) {
             SharedPreferences p = Keeper.prefs(s);
@@ -419,8 +464,10 @@ final class HomeDepotBridge {
         if (tag == null || !tag.startsWith(TAG_PREFIX)) return;
         String srcKey = tag.substring(TAG_PREFIX.length());
         boolean weRemoved;
+        String key;
         synchronized (LOCK) {
             live.remove(tag);
+            key = liveSubjects.remove(tag);
             weRemoved = selfRemoving.remove(tag);
         }
         // The same reasoning as the Gmail mirror: decide by whether we asked for it, not by the reason
@@ -430,9 +477,38 @@ final class HomeDepotBridge {
         boolean youDismissed = !weRemoved && !systemChurn;
         if (youDismissed) {
             addDismissed(c, srcKey);
+            if (key != null) {
+                // The same email may also be showing from another email app; its card must not come
+                // back either, now or when that app re-posts it.
+                synchronized (LOCK) {
+                    long now = System.currentTimeMillis();
+                    recentlyDismissed.entrySet().removeIf(e -> now - e.getValue() > DISMISS_MEMORY_MS);
+                    recentlyDismissed.put(key, now);
+                }
+                KeeperListener l = KeeperListener.current;
+                try {
+                    if (l != null) {
+                        for (StatusBarNotification x : l.getActiveNotifications()) {
+                            if (x.getPackageName().equals(c.getPackageName()) || !isHomeDepotMail(x)) continue;
+                            if (key.equals(subjectKey(x.getNotification().extras.getCharSequence(Notification.EXTRA_TEXT)))) {
+                                addDismissed(c, x.getKey());
+                            }
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    Log.w(Keeper.TAG, "home depot: could not check for other copies of a dismissed email", e);
+                }
+            }
             Log.i(Keeper.TAG, "home depot: you dismissed an order card (reason " + reason
                     + "); it stays gone. Your email notification is untouched.");
         }
+    }
+
+    /** The email's subject reduced to a comparable key: case and spacing ignored. Null when empty. */
+    private static String subjectKey(CharSequence subject) {
+        if (subject == null) return null;
+        String k = subject.toString().trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        return k.isEmpty() ? null : k;
     }
 
     private static String channelAccount(String channelId) {
