@@ -107,7 +107,7 @@ On my Googlebook, Gmail is a web app. Keeping its withdrawn alerts was the first
 web app cannot notify at all once its window is closed, and keeping copies cannot fix that. The full
 solution uses Google's Gmail Go app as the engine that receives Google's push messages, and
 Notification Keeper does the rest. The whole setup, including how to install Gmail Go and the small
-Linux Terminal service that handles Mark as read, is documented in
+ghost service that handles Mark as read on the Googlebook itself, is documented in
 [googlebook-gmail-web-app-notifications](https://github.com/iamflying29-sketch/googlebook-gmail-web-app-notifications).
 Inside this app, the Gmail features are:
 
@@ -147,15 +147,11 @@ Inside this app, the Gmail features are:
   [step 10](#10-optional-gmail-setup-only-let-the-gmail-helper-stay-on-after-updates) the Keeper
   turns this helper back on by itself after every update.
 * **Mark as read** (`GhostReceiver.java`). The Mark as read button writes a one-line command to the
-  system log, where the Linux Terminal service from the Gmail project picks it up and marks the email
-  read in a hidden browser. It also saves the same command as a small file in
-  `Documents/Notification Keeper/cmd/`, so the service still finds it after an outage. The Linux
-  Terminal stops its Linux system whenever its last window closes, and the service stops with it. So
-  when you tap Mark as read and the Terminal's Linux system is not running, the Keeper opens the
-  Terminal the same way its app icon does. The Linux system starts, the service picks up the saved
-  command, and the email is marked read a few seconds later. The Keeper can tell whether the Linux
-  system is running because the Terminal shows its ongoing notification only while it is. The
-  Terminal window stays open afterwards, because closing it would stop the Linux system again.
+  system log, where the ghost service from the Gmail project picks it up and marks the email read in
+  a hidden browser. The ghost runs on the Googlebook itself, so the Linux Terminal does not need to
+  be open. The button also saves the same command as a small file in
+  `Documents/Notification Keeper/cmd/`, so the ghost still finds it if it was restarting at that
+  moment.
 * **Gmail Go's other buttons** (`ActionReceiver.java`). Buttons on Gmail Go's other notifications that
   work in the background run Gmail Go's own action.
 * **Settings guard** (`SettingsGuard.java`). With a companion link (explained in
@@ -676,7 +672,7 @@ colons.
   part in the Gmail setup.
 * **What it writes to the system log.** It logs the source of each kept copy. With the Gmail features, the
   Mark as read button writes the account, the sender's address, the subject and the arrival time
-  under the tag `GmailGhostCmd`, because that is how the Linux Terminal service receives the command,
+  under the tag `GmailGhostCmd`, because that is how the ghost service receives the command,
   and each new email pop-up writes the account address under the same tag. The read detection logs
   the account address, the names of the labels whose counts changed and the identifier of the copy it
   cleared, never a subject or sender. On Android, ordinary apps
@@ -746,10 +742,10 @@ version 1.2.
 
 The whole keeping path is generic and needs no changes for a new web app:
 
-* `Keeper.webOrigin()` (`Keeper.java`, line 78) reads the origin from Chrome's tag pattern `WEB_TAG`
-  (line 48) or from a `Web:` group.
-* `Keeper.shouldKeep()` (line 92) accepts only removals with reason 8 or 9.
-* `Keeper.keep()` (line 116) builds the copy, and `OpenActivity` opens the source when it is tapped.
+* `Keeper.webOrigin()` (`Keeper.java`, line 76) reads the origin from Chrome's tag pattern `WEB_TAG`
+  (line 46) or from a `Web:` group.
+* `Keeper.shouldKeep()` (line 90) accepts only removals with reason 8 or 9.
+* `Keeper.keep()` (line 114) builds the copy, and `OpenActivity` opens the source when it is tapped.
 * `KeeperListener.onNotificationRemoved()` (`KeeperListener.java`, line 148) calls both for every
   removed notification, from any package.
 
@@ -757,7 +753,7 @@ The whole keeping path is generic and needs no changes for a new web app:
 
 | File | Gmail-specific code |
 | --- | --- |
-| `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 109 and 111). `gmailState()` (line 237) and the Gmail half of `runGuard()` (line 269). `MAX_KEPT` (line 45) shares the 50-notification budget with the Gmail copies. |
+| `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 107 and 109). `gmailState()` (line 235) and the Gmail half of `runGuard()` (line 267). `MAX_KEPT` (line 43) shares the 50-notification budget with the Gmail copies. |
 | `KeeperListener.java` | `onNotificationPosted()` (line 128) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 52) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 100) passes Gmail Go's category changes to `GhostReceiver`. |
 | `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 65 and 66), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 69), the engine check `engine()` (line 266), the hiding `hideGo()` (line 103) and the read probe `probe()` (line 120), the copy builder `mirror()` (line 417), the duplicate removal `onWebGmailPosted()` (line 785), `openWebGmail()` (line 907), `inboxUrl()` (line 941), `accountOf()` (line 966) and `MAX_MIRRORED` (line 55). |
 | `GoCounts.java`, `ReadSense.java` | The read detection: Gmail Go's provider authority and label names, the count snapshots, and the timing of the checks. |
@@ -821,7 +817,7 @@ welcome.
 | `src/local/notifkeeper/GoCounts.java` | Gmail: reads Gmail Go's unread counts and watches them for changes |
 | `src/local/notifkeeper/ReadSense.java` | Gmail: schedules the read checks and learns when to look |
 | `src/local/notifkeeper/WebGmailHelper.java` | Gmail: the optional accessibility helper |
-| `src/local/notifkeeper/GhostReceiver.java` | Gmail: the Mark as read command for the Linux Terminal service |
+| `src/local/notifkeeper/GhostReceiver.java` | Gmail: the Mark as read command for the ghost service |
 | `src/local/notifkeeper/ActionReceiver.java` | Gmail: runs Gmail Go's own background buttons |
 | `src/local/notifkeeper/SettingsGuard.java` | Gmail: saves and restores Gmail's and Gmail Go's notification categories |
 | `src/local/notifkeeper/DebugReceiver.java` | Gmail and Home Depot: test triggers that only adb can call |
@@ -836,8 +832,9 @@ welcome.
 ## Related projects
 
 * [googlebook-gmail-web-app-notifications](https://github.com/iamflying29-sketch/googlebook-gmail-web-app-notifications):
-  the complete Gmail setup that uses Notification Keeper's Gmail features, Gmail Go and a Linux
-  Terminal service to give the Gmail web app real, lasting notifications even when it is closed.
+  the complete Gmail setup that uses Notification Keeper's Gmail features, Gmail Go and a small ghost
+  service on the Googlebook to give the Gmail web app real, lasting notifications even when it is
+  closed.
 * [googlebook-projects](https://github.com/iamflying29-sketch/googlebook-projects): the overview of
   all my Googlebook projects and the shared
   [Getting Started guide](https://github.com/iamflying29-sketch/googlebook-projects/blob/main/GETTING-STARTED.md).

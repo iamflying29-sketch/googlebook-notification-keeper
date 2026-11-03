@@ -90,12 +90,6 @@ public class DebugReceiver extends BroadcastReceiver {
             Log.i(Keeper.TAG, "go counts for " + i.getStringExtra("counts") + ": " + GoCounts.read(c, i.getStringExtra("counts")));
             return;
         }
-        if (i.hasExtra("vmcheck")) {
-            // adb test: log whether the Terminal VM is seen as running (adb shell am broadcast ... --ez vmcheck true).
-            // Looks only; never opens the Terminal.
-            Log.i(Keeper.TAG, "terminal VM running: " + GhostReceiver.terminalVmRunning());
-            return;
-        }
         if (i.getBooleanExtra("hddetect", false)) {
             // adb recognition test (no card posted): checks the full "is this a Home Depot order email
             // from an email app" test with plain values, so any email app can be checked without a

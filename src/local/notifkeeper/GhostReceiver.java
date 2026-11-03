@@ -12,8 +12,9 @@ import java.util.Locale;
 /**
  * The Mark-as-read button on a Gmail notification. Instead of driving the web Gmail on screen (the
  * WebGmailHelper, used for Reply/Delete/tap), this emits a one-line command on logcat under the tag
- * "GmailGhostCmd". The ghost daemon on the Linux side (ghostd.py --adb) is listening, and marks that
- * exact email read in a hidden, already-logged-in Chromium - instantly, with no window.
+ * "GmailGhostCmd". The ghost daemon (ghostd.py --device), which runs on the Googlebook itself as the
+ * adb shell user and needs no Linux Terminal, is listening, and marks that exact email read in a
+ * hidden, already-logged-in Chromium, instantly and with no window.
  *
  * The command carries the account, the sender's email address, the subject and the arrival time, so
  * the daemon can pin the exact message. The Keeper then removes its own copy right away.
@@ -40,70 +41,15 @@ public class GhostReceiver extends BroadcastReceiver {
     /**
      * Sends a Mark-as-read to the ghost daemon two ways at once, then removes our copy. The logcat line
      * is the instant path. The durable file is the backstop: the daemon drains it whenever it runs,
-     * with no time limit, so a tap survives a Wi-Fi outage, the adb port moving, a daemon restart or a
-     * reboot. Whichever arrives second is ignored, because the daemon dedupes by the command id.
+     * with no time limit, so a tap survives a daemon restart, an outage or a reboot. Whichever arrives
+     * second is ignored, because the daemon dedupes by the command id.
      */
     static void markReadNow(Context c, String account, String address, String subject, long when, String cancelTag) {
         String id = id();
         String json = markReadJson(id, account, address, subject, when);
         emit(json);
         dropCmdFile(c, id, json);
-        ensureGhostHost(c);
         GmailMirror.removeCopy(c, cancelTag);
-    }
-
-    /**
-     * The ghost daemon lives in the Linux Terminal's VM, and the Terminal app stops that VM whenever
-     * its last window closes. The durable file keeps the tap safe, but nothing would act on it until
-     * the Terminal is opened again. So when the VM is not running, open the Terminal the way its app
-     * icon does: the VM boots, the daemon starts and drains the command within seconds. The Terminal
-     * posts a foreground service notification only while its VM is alive, and the notification
-     * listener can see it, so that is the test. Nothing happens when the VM is already running.
-     */
-    static void ensureGhostHost(Context c) {
-        Boolean running = terminalVmRunning();
-        if (running == null) {
-            Log.w(Keeper.TAG, "ghost: cannot tell whether the Terminal VM is running (listener not bound), leaving it");
-            return;
-        }
-        if (running) {
-            Log.i(Keeper.TAG, "ghost: the Terminal VM is running");
-            return;
-        }
-        Intent launch = c.getPackageManager().getLaunchIntentForPackage(Keeper.TERMINAL);
-        if (launch == null) {
-            Log.w(Keeper.TAG, "ghost: the Terminal VM is not running and the Terminal app has no launcher entry");
-            return;
-        }
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            c.startActivity(launch);
-            Log.i(Keeper.TAG, "ghost: the Terminal VM is not running; opened the Terminal so the daemon can act on the queued command");
-        } catch (RuntimeException e) {
-            Log.w(Keeper.TAG, "ghost: the Terminal VM is not running and opening the Terminal failed", e);
-        }
-    }
-
-    /**
-     * Whether the Terminal's VM is alive: true or false when the listener can look at the posted
-     * notifications, null when it cannot (listener not bound right now).
-     */
-    static Boolean terminalVmRunning() {
-        KeeperListener l = KeeperListener.current;
-        if (l == null) return null;
-        try {
-            android.service.notification.StatusBarNotification[] all = l.getActiveNotifications();
-            if (all == null) return null;
-            for (android.service.notification.StatusBarNotification s : all) {
-                if (Keeper.TERMINAL.equals(s.getPackageName())
-                        && (s.getNotification().flags & android.app.Notification.FLAG_FOREGROUND_SERVICE) != 0) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 
     /** Emit a command on logcat for the ghost daemon (the instant path). */
