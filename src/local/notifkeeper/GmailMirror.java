@@ -48,6 +48,8 @@ import java.util.regex.Pattern;
  */
 final class GmailMirror {
     static final String CHILD_PREFIX = "gm:";
+    /** Set on a copy made from Gmail Go's group header: removing it never cancels Gmail Go's header (see onCopyRemoved). */
+    private static final String EXTRA_FROM_GO_HEADER = "local.notifkeeper.fromGoHeader";
     private static final String SUMMARY_PREFIX = "gmsum:";
     private static final String CHANNEL_PREFIX = "go:";
     private static final int ID = 1;
@@ -62,6 +64,8 @@ final class GmailMirror {
     private static final long PROBE_SETTLE_MS = 3000;
     /** When a read probe last ran, per account, so one account's probe never blocks another's. */
     private static final Map<String, Long> lastProbeAt = new HashMap<>();
+    /** Accounts with a probe waiting to run as soon as the current one has settled. */
+    private static final Set<String> followUp = new HashSet<>();
     private static final String MAIL_CHANNEL = "^nc_1_mail_";
     private static final String ACCOUNT_GROUP = "^ncg_1_account_";
 
@@ -122,7 +126,22 @@ final class GmailMirror {
         String probeKey = account == null ? "" : account;
         synchronized (LOCK) {
             Long prev = lastProbeAt.get(probeKey);
-            if (prev != null && now - prev < PROBE_MS + PROBE_SETTLE_MS) return; // one at a time per account
+            if (prev != null && now - prev < PROBE_MS + PROBE_SETTLE_MS) {
+                // One at a time per account. A read that arrives while a probe is running (two mails
+                // read a few seconds apart) gets its own probe once this one has settled; the count
+                // drop that triggered it is already used up, so it would otherwise be lost.
+                if (followUp.add(probeKey)) {
+                    long wait = prev + PROBE_MS + PROBE_SETTLE_MS + 250 - now;
+                    main.postDelayed(() -> {
+                        synchronized (LOCK) {
+                            followUp.remove(probeKey);
+                        }
+                        NotificationListenerService cur = KeeperListener.current;
+                        probe(cur != null ? cur : s, account);
+                    }, Math.max(0, wait));
+                }
+                return;
+            }
             lastProbeAt.put(probeKey, now);
         }
         List<String> keys = new ArrayList<>();
@@ -131,6 +150,10 @@ final class GmailMirror {
             if (snoozed != null) {
                 for (StatusBarNotification x : snoozed) {
                     if (!Keeper.GMAIL_GO.equals(x.getPackageName())) continue;
+                    // Never Gmail Go's group header: it is not a mail, and when it came back the Keeper
+                    // hid it again, and hiding a header re-hides its whole group for 12 hours, which
+                    // could catch a read mail before its short probe snooze ended and mask the read.
+                    if ((x.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
                     String a = accountOf(x.getNotification(), null);
                     if (account == null || a == null || account.equals(a)) keys.add(x.getKey());
                 }
@@ -139,7 +162,11 @@ final class GmailMirror {
             Log.w(Keeper.TAG, "gmail mirror: probe could not list hidden notifications", e);
             return;
         }
-        if (keys.isEmpty()) return;
+        if (keys.isEmpty()) {
+            Log.i(Keeper.TAG, "gmail mirror: probe: no hidden Gmail Go notification for " + account
+                    + ", so nothing to test (copies whose original is gone cannot be checked)");
+            return;
+        }
         Log.i(Keeper.TAG, "gmail mirror: probing " + keys.size() + " hidden Gmail Go notification(s) for " + account);
         synchronized (LOCK) {
             probing.addAll(keys);
@@ -154,10 +181,31 @@ final class GmailMirror {
         main.postDelayed(() -> settleProbe(s, account, keys), PROBE_MS + PROBE_SETTLE_MS);
     }
 
+    /**
+     * Whatever happens while settling, the probed keys always leave the probing set again; a key left
+     * in it would be hidden forever on every re-post and never be tested again.
+     */
     private static void settleProbe(NotificationListenerService s, String account, List<String> probed) {
+        try {
+            settleProbeNow(s, account, probed);
+        } catch (RuntimeException e) {
+            Log.w(Keeper.TAG, "gmail mirror: probe settle failed", e);
+        } finally {
+            synchronized (LOCK) {
+                probing.removeAll(probed);
+            }
+        }
+    }
+
+    private static void settleProbeNow(NotificationListenerService s, String account, List<String> probed) {
         Set<String> present = new HashSet<>();
         try {
-            for (StatusBarNotification x : s.getActiveNotifications()) present.add(x.getKey());
+            StatusBarNotification[] active = s.getActiveNotifications();
+            if (active == null) {
+                Log.w(Keeper.TAG, "gmail mirror: probe settle: the notification list is not available right now");
+                return;
+            }
+            for (StatusBarNotification x : active) present.add(x.getKey());
             StatusBarNotification[] snoozed = s.getSnoozedNotifications();
             if (snoozed != null) for (StatusBarNotification x : snoozed) present.add(x.getKey());
         } catch (RuntimeException e) {
@@ -192,9 +240,6 @@ final class GmailMirror {
                 }
             }, 400);
             ReadSense.learned(s, latencies);
-        }
-        synchronized (LOCK) {
-            probing.removeAll(probed);
         }
     }
 
@@ -312,7 +357,13 @@ final class GmailMirror {
     static void onPosted(NotificationListenerService s, StatusBarNotification sbn,
             NotificationListenerService.RankingMap ranking, boolean mayAlert) {
         if (!engineOk(s)) return;
-        if (isDismissed(s, sbn.getKey())) {
+        // Only a mail is ever removed for having been dismissed, never Gmail Go's group header: Android
+        // re-posts the header with every new mail, and cancelling a header cancels every mail of its
+        // group that is showing at that moment (so the new mail's own notification was gone before it
+        // could be hidden, and the read detection had nothing left to test). A dismissed header is
+        // hidden by the header handling below instead.
+        boolean header = (sbn.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0;
+        if (!header && isDismissed(s, sbn.getKey())) {
             // You swiped this mail's notification away before. Gmail Go brought its own back (a probe,
             // a snooze ending, or a reconnect). Remove it and never show our copy again.
             try {
@@ -390,12 +441,10 @@ final class GmailMirror {
                 hideGo(s, summary); // its mails have copies (or are about to): Gmail Go's header goes
             } else if (isDismissed(s, key) || System.currentTimeMillis() - summary.getPostTime() > STALE_REPOST_MS) {
                 // A leftover header of a group whose mails you dismissed or read, or an old one coming
-                // back from snooze. There is nothing to summarize, so remove it instead of a bare header.
-                try {
-                    s.cancelNotification(key);
-                } catch (RuntimeException e) {
-                    // already gone
-                }
+                // back from snooze. There is nothing to summarize, so hide it instead of showing a bare
+                // header. Hidden, not cancelled: cancelling a header also cancels the mails of its group
+                // that are showing, which would cost a newly arriving mail its read detection.
+                hideGo(s, summary);
             } else {
                 mirror(s, summary, null, true);
             }
@@ -458,6 +507,14 @@ final class GmailMirror {
                 .setGroupAlertBehavior(alert ? Notification.GROUP_ALERT_CHILDREN : Notification.GROUP_ALERT_SUMMARY)
                 .setContentIntent(mail ? open(s, code, url, null, text, title, address, account, when(orig, sbn), WebGmailHelper.Kind.OPEN)
                         : open(s, code, url, null));
+        if ((orig.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
+            // A copy of Gmail Go's group header (Gmail sometimes posts only a header). Marked, so that
+            // removing it never cancels Gmail Go's header, which would cancel its showing mails too
+            // (see onCopyRemoved).
+            Bundle mark = new Bundle();
+            mark.putBoolean(EXTRA_FROM_GO_HEADER, true);
+            b.addExtras(mark);
+        }
         if (lines != null && lines.length > 0) {
             Notification.InboxStyle st = new Notification.InboxStyle();
             for (CharSequence l : lines) st.addLine(l);
@@ -525,6 +582,7 @@ final class GmailMirror {
         }
         GoCounts.observe(s, account);
         ReadSense.noteNewMail(s);
+        ReadSense.watch(s); // the backup checks stop when no copy is left; a new mail starts them again
         refreshSummary(s, group, channelId, account);
         trim(s);
         if (alert) {
@@ -626,14 +684,20 @@ final class GmailMirror {
         // stacked group. Matching only reason 1, 2 or 3 before meant a swipe that arrived under another
         // code was never recorded, so the mail came back when its 12 hour snooze expired. Now any copy
         // removed without the Keeper asking is your dismissal, except the system's own churn (errors,
-        // package or profile changes, group re-bundling, a snooze or the assistant), which is not you.
-        boolean systemChurn = (reason >= 4 && reason <= 11) || (reason >= 13 && reason <= 22);
+        // package or profile changes, group re-bundling, a snooze, the assistant or lockdown), which is
+        // not you.
+        boolean systemChurn = (reason >= 4 && reason <= 11) || (reason >= 13 && reason <= 23); // 23: lockdown
         boolean youDismissed = !weRemoved && !systemChurn;
+        // A copy of Gmail Go's group header (Gmail sometimes posts only a header) is remembered like any
+        // other, so it stays gone, but Gmail Go's header itself is never cancelled: cancelling a header
+        // also cancels the mails of its group that are showing. The header handling hides it instead.
+        boolean fromHeader = sbn.getNotification().extras.getBoolean(EXTRA_FROM_GO_HEADER, false);
         Log.i(Keeper.TAG, "gmail mirror: copy removed (reason " + reason + ", key " + goKey + "): "
-                + (weRemoved ? "the Keeper's own removal" : youDismissed ? "you dismissed it, remembering so it stays gone" : "system churn, left as is"));
+                + (weRemoved ? "the Keeper's own removal" : youDismissed ? "you dismissed it, remembering so it stays gone"
+                + (fromHeader ? " (a copy of Gmail Go's header: hidden, never cancelled)" : "") : "system churn, left as is"));
         if (youDismissed) {
             addDismissed(c, goKey);
-            if (c instanceof NotificationListenerService) {
+            if (!fromHeader && c instanceof NotificationListenerService) {
                 try {
                     ((NotificationListenerService) c).cancelNotification(goKey);
                 } catch (RuntimeException e) {

@@ -128,7 +128,13 @@ public class DebugReceiver extends BroadcastReceiver {
         String sender = i.getStringExtra("sender");
         String account = i.getStringExtra("account");
         String what = i.getStringExtra("do");
-        WebGmailHelper.Kind kind = WebGmailHelper.Kind.valueOf(what == null ? "OPEN" : what.toUpperCase(java.util.Locale.ROOT));
+        WebGmailHelper.Kind kind;
+        try {
+            kind = WebGmailHelper.Kind.valueOf(what == null ? "OPEN" : what.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            Log.w(Keeper.TAG, "test trigger: unknown action " + what + " (use open, reply, delete, read or inbox)");
+            return;
+        }
         String url = GmailMirror.inboxUrl(account);
         Log.i(Keeper.TAG, "test trigger: " + kind + " in the web Gmail");
         WebGmailHelper.start(kind, subject, sender, i.getStringExtra("address"), account, i.getLongExtra("when", 0), url, null);

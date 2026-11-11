@@ -9,8 +9,8 @@ import android.util.Log;
 
 /**
  * Tapping a kept notification: open the web app (or the site in Chrome) it came from. Tapping a
- * Gmail notification (or its Reply / Delete / Mark as read button): open the web Gmail, where the
- * Gmail helper finishes the job on that email.
+ * Gmail notification (or its Reply or Delete button): open the web Gmail, where the Gmail helper
+ * finishes the job on that email. (Mark as read goes to the ghost through GhostReceiver instead.)
  */
 public class OpenActivity extends Activity {
     static final String EXTRA_PACKAGE = "pkg";

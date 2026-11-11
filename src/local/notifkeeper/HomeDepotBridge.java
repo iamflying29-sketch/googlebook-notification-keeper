@@ -473,7 +473,7 @@ final class HomeDepotBridge {
         // The same reasoning as the Gmail mirror: decide by whether we asked for it, not by the reason
         // code (which differs between devices and between a single card and a stack). Anything removed
         // without the Keeper asking, other than the system's own churn, is your dismissal.
-        boolean systemChurn = (reason >= 4 && reason <= 11) || (reason >= 13 && reason <= 22);
+        boolean systemChurn = (reason >= 4 && reason <= 11) || (reason >= 13 && reason <= 23); // 23: lockdown
         boolean youDismissed = !weRemoved && !systemChurn;
         if (youDismissed) {
             addDismissed(c, srcKey);

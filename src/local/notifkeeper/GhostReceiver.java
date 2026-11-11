@@ -27,9 +27,11 @@ public class GhostReceiver extends BroadcastReceiver {
     static final String EXTRA_WHEN = "when";
     static final String EXTRA_CANCEL_TAG = "cancel";
 
-    /** Where the durable copy of each command goes, as the Linux VM sees it:
-     *  /mnt/shared/Documents/Notification Keeper/cmd/<id>.json . Its own subfolder, so the daemon only
-     *  ever looks at command files and never at anything else in the Notification Keeper folder. */
+    /** Where the durable copy of each command goes: Documents/Notification Keeper/cmd/<id>.json in
+     *  shared storage. The ghost on the Googlebook reads it through Android's media storage (a ghost on
+     *  a Linux computer sees it as /mnt/shared/Documents/Notification Keeper/cmd/). Its own subfolder,
+     *  so the daemon only ever looks at command files and never at anything else in the Notification
+     *  Keeper folder. */
     static final String CMD_DIR = android.os.Environment.DIRECTORY_DOCUMENTS + "/Notification Keeper/cmd/";
 
     @Override
@@ -71,6 +73,9 @@ public class GhostReceiver extends BroadcastReceiver {
             v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, id + ".json");
             v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json");
             v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, CMD_DIR);
+            // Pending until it is fully written: other apps (the ghost included) do not see a pending
+            // file, so the daemon can never find it empty and file it away unread.
+            v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
             android.net.Uri uri = cr.insert(files, v);
             if (uri == null) {
                 Log.w(Keeper.TAG, "ghost: the Documents folder refused a command file (logcat was still sent)");
@@ -79,6 +84,9 @@ public class GhostReceiver extends BroadcastReceiver {
             try (java.io.OutputStream out = cr.openOutputStream(uri, "wt")) {
                 out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
+            android.content.ContentValues done = new android.content.ContentValues();
+            done.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+            cr.update(uri, done, null, null);
             Log.i(Keeper.TAG, "ghost: wrote a durable command file for the daemon (" + id + ".json)");
         } catch (Exception e) {
             Log.w(Keeper.TAG, "ghost: could not write a durable command file (logcat was still sent)", e);
@@ -109,9 +117,10 @@ public class GhostReceiver extends BroadcastReceiver {
     private static final String MAIL_CHANNEL = "^nc_1_mail_";
 
     /**
-     * Auto-tie: a Gmail Go mail category was turned on or off. On -> ask the daemon to set that
-     * account up for instant Mark-as-read (it pops a one-time sign-in). Off -> ask the daemon to sign
-     * it out and set its login aside. Only Gmail accounts (the ghost browser is Gmail web); debounced
+     * Auto-tie: a Gmail Go mail category was turned on or off. On: ask the daemon to set that account
+     * up for instant Mark as read (a ghost on a Linux computer opens a one-time sign-in window; the
+     * ghost on the Googlebook cannot, and logs that the account must be signed in on Linux). Off: ask
+     * the daemon to sign it out and set its login aside. Only Gmail accounts (the ghost browser is Gmail web); debounced
      * so it only fires on an actual on<->off change.
      */
     static void onGmailGoChannel(Context c, NotificationChannel channel) {

@@ -84,9 +84,10 @@
 
 
         <!-- Gmail helper (accessibility): after a tap on a Gmail notification, opens that email in the
-             web Gmail; for Reply / Delete / Mark as read, picks that item in the web Gmail's right-click
-             menu for the email. Clears the notification once the email is opened there. Only
-             Chrome/Gmail events reach it (res/xml/web_gmail_helper.xml). -->
+             web Gmail; for Reply and Delete, picks that item in the web Gmail's right-click menu for
+             the email (Mark as read goes to the ghost through GhostReceiver instead). Clears the
+             notification once the email is opened there. Only Chrome and Gmail events reach it
+             (res/xml/web_gmail_helper.xml). -->
         <service
             android:name=".WebGmailHelper"
             android:exported="true"

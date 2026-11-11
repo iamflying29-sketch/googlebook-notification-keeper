@@ -35,8 +35,8 @@ import java.util.regex.Pattern;
  * Gmail app does when you read an email elsewhere).
  *
  * The email must match the notification's subject and arrival time (within 2 minutes), so an older
- * email with the same subject is never touched. The helper only touches the web Gmail window while
- * that window is the active one, and only at a point no other window covers. Every job gives up
+ * email with the same subject is never touched. The helper only touches the web Gmail window at a
+ * point that no other window covers. Every job gives up
  * after 45 s, leaving the notification in place. It only receives events from Chrome / Gmail
  * (res/xml/web_gmail_helper.xml), stores nothing and logs no email content.
  */
@@ -277,7 +277,7 @@ public class WebGmailHelper extends AccessibilityService {
                 j.launched = true;
                 logWindowsNow("no web Gmail window found, about to open one");
                 GmailMirror.openWebGmail(this, j.url);
-                Log.i(Keeper.TAG, "gmail helper: no web Gmail window found after " + (now - j.started) + " ms, opened one");
+                Log.i(Keeper.TAG, "gmail helper: no web Gmail window found after " + (now - j.started) + " ms, brought Gmail to the front (it reuses an open window, or opens one)");
             }
         } catch (RuntimeException ex) {
             Log.w(Keeper.TAG, "gmail helper: step failed", ex);
@@ -493,8 +493,8 @@ public class WebGmailHelper extends AccessibilityService {
     }
 
     /**
-     * A short tap or a long press (the web Gmail's right-click) at x,y in the web Gmail window - only
-     * if that window is the active one and nothing else on screen covers that point.
+     * A short tap or a long press (the web Gmail's right-click) at x,y in the web Gmail window, only
+     * if nothing else on screen covers that point.
      */
     private boolean touch(Job j, AccessibilityWindowInfo w, int x, int y, long ms) {
         if (!uncovered(w, x, y)) {

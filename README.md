@@ -140,8 +140,7 @@ Inside this app, the Gmail features are:
   depending on when Gmail Go synced.
 * **Gmail helper** (`WebGmailHelper.java`). An accessibility service, off by default, that carries
   out a tap, Reply or Delete in the Gmail web app window. It finds the email by its subject and
-  arrival time, and it only touches the screen when the Gmail web app is the active window and
-  nothing covers the spot. When it needs the Gmail web app it reuses a window that is already open
+  arrival time, and it only touches the Gmail web app at a spot that no other window covers. When it needs the Gmail web app it reuses a window that is already open
   instead of opening a second one. Android switches an accessibility service off whenever its app is
   updated or reinstalled, so if you grant the optional permission in
   [step 10](#10-optional-gmail-setup-only-let-the-gmail-helper-stay-on-after-updates) the Keeper
@@ -682,8 +681,8 @@ colons.
   categories. The code uses it only for Gmail and Gmail Go (`SettingsGuard.PKGS`). Create it only if
   you use the Gmail setup.
 * **The Gmail helper** is an accessibility service and is off unless you turn it on. Its configuration
-  limits it to events from Chrome and Gmail, it only touches the screen when the Gmail web app is the
-  active window and nothing covers the spot, and it stores nothing. Leave it off if you do not use the
+  limits it to events from Chrome and Gmail, it only touches the Gmail web app at a spot that no other
+  window covers, and it stores nothing. Leave it off if you do not use the
   Gmail setup.
 * **Exported components.** The test trigger (`DebugReceiver`) requires the `DUMP` permission, which
   only the adb shell has. The listener and the Gmail helper can only be bound by the system. The boot
@@ -755,7 +754,7 @@ The whole keeping path is generic and needs no changes for a new web app:
 | --- | --- |
 | `Keeper.java` | The package names `GMAIL` and `GMAIL_GO` (lines 38 and 39). Two Gmail exclusions in `shouldKeep()` (lines 107 and 109). `gmailState()` (line 235) and the Gmail half of `runGuard()` (line 267). `MAX_KEPT` (line 43) shares the 50-notification budget with the Gmail copies. |
 | `KeeperListener.java` | `onNotificationPosted()` (line 128) sends Gmail Go's notifications to `GmailMirror.onPosted()` and the Gmail web app's to `GmailMirror.onWebGmailPosted()`. The package receiver (line 52) only reacts to Gmail and Gmail Go. `onNotificationChannelModified()` (line 100) passes Gmail Go's category changes to `GhostReceiver`. |
-| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 65 and 66), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 69), the engine check `engine()` (line 266), the hiding `hideGo()` (line 103) and the read probe `probe()` (line 120), the copy builder `mirror()` (line 417), the duplicate removal `onWebGmailPosted()` (line 785), `openWebGmail()` (line 907), `inboxUrl()` (line 941), `accountOf()` (line 966) and `MAX_MIRRORED` (line 55). |
+| `GmailMirror.java` | All of the mirroring. Gmail Go's channel prefix `MAIL_CHANNEL` and account group prefix `ACCOUNT_GROUP` (lines 69 and 70), the Gmail web app's new-mail tag `WEB_MAIL_TAG` (line 73), the engine check `engine()` (line 311), the hiding `hideGo()` (line 107) and the read probe `probe()` (line 124), the copy builder `mirror()` (line 466), the duplicate removal `onWebGmailPosted()` (line 849), `openWebGmail()` (line 971), `inboxUrl()` (line 1005), `accountOf()` (line 1030) and `MAX_MIRRORED` (line 57). |
 | `GoCounts.java`, `ReadSense.java` | The read detection: Gmail Go's provider authority and label names, the count snapshots, and the timing of the checks. |
 | `SettingsGuard.java` | The guarded packages `PKGS` (line 43), their file names in `file()` (line 54) and display names in `label()` (line 58), my "pop on screen" rule in `newCategoryRule()` (line 266), the Gmail Go silencing in `silenceOriginals()` (line 209), and `summary()` (line 364), which reads only Gmail's file. |
 | `WebGmailHelper.java` and `res/xml/web_gmail_helper.xml` | The accessibility helper. It reads Gmail's web page structure, and the XML limits it to the packages `com.android.chrome` and `com.google.android.gm`. |

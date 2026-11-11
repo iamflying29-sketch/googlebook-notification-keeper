@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Notification Keeper</string>
 
-    <string name="about">Gmail: on this Googlebook the Gmail app shows the web Gmail and can\'t notify while it\'s closed, so Gmail Go (Google\'s lite Gmail, kept in the background) receives Google\'s new-mail pushes. Notification Keeper shows each of its notifications: it pops up, stays until you deal with it, opens that exact email in the web Gmail when tapped, and its Reply, Delete and Mark as read buttons do that in the web Gmail. Websites and web apps (Chrome, Calendar, Meet, GeForce NOW and others) often take their own notifications back a few seconds after showing them; Notification Keeper puts a quiet copy back so it stays until you tap it or clear it. It also saves Gmail\'s and Gmail Go\'s notification settings and puts them back if they\'re reset. It works in the background on its own - you can close this window any time. It has no internet access and stores no message content.</string>
+    <string name="about">Gmail: on this Googlebook the Gmail app shows the web Gmail and can\'t notify while it\'s closed, so Gmail Go (Google\'s lite Gmail, kept in the background) receives Google\'s new-mail pushes. Notification Keeper shows each of its notifications: it pops up, stays until you deal with it, opens that exact email in the web Gmail when tapped, its Reply and Delete buttons do that in the web Gmail, and its Mark as read button has the Gmail Ghost on this Googlebook mark the email read in the background. Websites and web apps (Chrome, Calendar, Meet, GeForce NOW and others) often take their own notifications back a few seconds after showing them; Notification Keeper puts a quiet copy back so it stays until you tap it or clear it. It also saves Gmail\'s and Gmail Go\'s notification settings and puts them back if they\'re reset. It works in the background on its own, so you can close this window any time. It has no internet access and stores no message content.</string>
 
     <string name="ok_access">✓ Notification access is on</string>
     <string name="bad_access">✗ Notification access is off - nothing can be kept</string>
@@ -34,9 +34,9 @@
     <string name="gmail_go_blocked">✗ Gmail Go can\'t post notifications (perhaps the Play Store updated it to a version that doesn\'t ask for permission). Ask Claude to fix it (notif-restore).</string>
 
     <string name="helper_label">Notification Keeper: Gmail helper</string>
-    <string name="helper_desc">Carries out your Gmail notification taps and buttons in the web Gmail\'s Inbox: it finds that email there (on older pages too), tapping opens it, and Reply, Delete and Mark as read are picked in the web Gmail\'s own right-click menu for that email. It also clears a Gmail notification once you\'ve opened that email there. It only touches the web Gmail window while it\'s in front, only for this, and stores nothing.</string>
-    <string name="helper_on">✓ Gmail helper is on: tapping opens the exact email; Reply, Delete and Mark as read work in the web Gmail.</string>
-    <string name="helper_off">✗ Gmail helper is off: tapping or a button only opens the web Gmail\'s Inbox. Turn on "Notification Keeper: Gmail helper" in Settings → Accessibility.</string>
+    <string name="helper_desc">Carries out your Gmail notification taps and their Reply and Delete buttons in the web Gmail\'s Inbox: it finds that email there (on older pages too), tapping opens it, and Reply and Delete are picked in the web Gmail\'s own right-click menu for that email. It also clears a Gmail notification once you\'ve opened that email there. It only touches the web Gmail window at a point that no other window covers, only for this, and stores nothing.</string>
+    <string name="helper_on">✓ Gmail helper is on: tapping opens the exact email, and Reply and Delete work in the web Gmail.</string>
+    <string name="helper_off">✗ Gmail helper is off: tapping, Reply or Delete only opens the web Gmail\'s Inbox (Mark as read still works). Turn on "Notification Keeper: Gmail helper" in Settings, under Accessibility.</string>
     <string name="action_reply">Reply</string>
     <string name="action_delete">Delete</string>
     <string name="action_mark_read">Mark as read</string>
