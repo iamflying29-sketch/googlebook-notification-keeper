@@ -79,7 +79,7 @@ public class WebGmailHelper extends AccessibilityService {
         String listSeen;  // which list page showed last without the email
         long seenAt, listSeenAt, actedAt, scrolledAt, inboxTapAt;
         int tries, pages;
-        boolean touching, refreshed, launched, everSawWindow;
+        boolean touching, refreshed, launched, everSawWindow, raised;
 
         Job(Kind kind, String subject, String sender, String address, String account, long when, String url, String tag) {
             this.kind = kind;
@@ -498,7 +498,17 @@ public class WebGmailHelper extends AccessibilityService {
      */
     private boolean touch(Job j, AccessibilityWindowInfo w, int x, int y, long ms) {
         if (!uncovered(w, x, y)) {
-            Log.i(Keeper.TAG, "gmail helper: the web Gmail isn't in front at that spot, waiting");
+            if (!j.raised) {
+                // Another window covers part of the web Gmail, right where the helper has to act. Bring
+                // Gmail to the front once, the way its app icon does: that reuses the open window and
+                // never opens a second one. A fully covered window is handled in step(), where the
+                // helper cannot see it at all; this is the partly covered case.
+                j.raised = true;
+                GmailMirror.openWebGmail(this, j.url);
+                Log.i(Keeper.TAG, "gmail helper: another window covers the web Gmail at that spot, brought Gmail to the front");
+            } else {
+                Log.i(Keeper.TAG, "gmail helper: the web Gmail isn't in front at that spot, waiting");
+            }
             return false;
         }
         Path path = new Path();
