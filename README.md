@@ -141,8 +141,11 @@ Inside this app, the Gmail features are:
 * **Gmail helper** (`WebGmailHelper.java`). An accessibility service, off by default, that carries
   out a tap, Reply or Delete in the Gmail web app window. It finds the email by its subject and
   arrival time, and it only touches the Gmail web app at a spot that no other window covers. When
-  another window covers the spot it needs, it brings Gmail to the front first. When it needs the
-  Gmail web app it reuses a window that is already open instead of opening a second one. Android switches an accessibility service off whenever its app is
+  another window covers the spot it needs, it brings Gmail to the front first. When the email
+  belongs to another account than the one the Gmail web app shows, it switches the web app to that
+  account with Gmail's own account list (your profile picture at the top right), in the same window;
+  if that account is not signed in to the Gmail web app, it stops and says so in the log. When it
+  needs the Gmail web app it reuses a window that is already open instead of opening a second one. Android switches an accessibility service off whenever its app is
   updated or reinstalled, so if you grant the optional permission in
   [step 10](#10-optional-gmail-setup-only-let-the-gmail-helper-stay-on-after-updates) the Keeper
   turns this helper back on by itself after every update.

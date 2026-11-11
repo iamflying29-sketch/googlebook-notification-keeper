@@ -58,6 +58,8 @@ public class WebGmailHelper extends AccessibilityService {
     private static final int MAX_PAGES = 5;
     private static final long MENU_WAIT_MS = 2_500;
     private static final long CHECK_WAIT_MS = 3_000;
+    private static final long ACCOUNT_WAIT_MS = 3_000;   // for Gmail's account list to open
+    private static final long ACCOUNT_LOAD_MS = 10_000;  // for the other account's Inbox to load
     private static final long LONG_PRESS_MS = 800;
     private static final long TAP_MS = 60;
     private static final int MAX_TRIES = 2;
@@ -80,6 +82,8 @@ public class WebGmailHelper extends AccessibilityService {
         long seenAt, listSeenAt, actedAt, scrolledAt, inboxTapAt;
         int tries, pages;
         boolean touching, refreshed, launched, everSawWindow, raised;
+        long accountMenuAt, accountPickAt; // switching the web Gmail to the job's account
+        int accountMenuTries;
 
         Job(Kind kind, String subject, String sender, String address, String account, long when, String url, String tag) {
             this.kind = kind;
@@ -124,7 +128,15 @@ public class WebGmailHelper extends AccessibilityService {
      * window when none is found. This keeps even a plain tap from ever adding a second window.
      */
     static void openInbox(String url) {
-        job = new Job(Kind.INBOX, "", null, null, null, 0, url, null);
+        // The account's Inbox link (GmailMirror.inboxUrl) names the account, so the web Gmail can be
+        // switched to it when it shows another one.
+        String account = null;
+        try {
+            if (url != null) account = android.net.Uri.parse(url).getQueryParameter("authuser");
+        } catch (RuntimeException e) {
+            account = null;
+        }
+        job = new Job(Kind.INBOX, "", null, null, account, 0, url, null);
         WebGmailHelper h = running;
         if (h != null) h.handler.post(h.retry);
     }
@@ -333,8 +345,14 @@ public class WebGmailHelper extends AccessibilityService {
     /** Finds the email in the Inbox list (scrolling, refreshing, older pages) and clicks / right-clicks it. */
     private void find(Job j, Gmail g, long now) {
         Page p = g.page;
-        if (!p.isList() || !p.accountIs(j.account)) { // an open email, a search, or another view
-            if (!p.isList()) goToInbox(j, g, now);
+        if (!p.accountIs(j.account)) { // the web Gmail shows another account: switch it first
+            switchAccount(j, g, now);
+            j.seenWhere = null;
+            j.listSeen = null;
+            return;
+        }
+        if (!p.isList()) { // an open email, a search, or another view
+            goToInbox(j, g, now);
             j.seenWhere = null;
             j.listSeen = null;
             return;
@@ -427,12 +445,50 @@ public class WebGmailHelper extends AccessibilityService {
     }
 
     /**
+     * The web Gmail shows another account than the job's. Switch it in the same window the way you
+     * would by hand: click the profile picture ("Google Account: ..."), then that account's entry in
+     * Gmail's account list (its label is the name and the address). Gmail then loads that account's
+     * Inbox in this window, never a second one. If the account is not in the list (not signed in to
+     * the web Gmail), give up with a clear reason instead of waiting out the whole job.
+     */
+    private void switchAccount(Job j, Gmail g, long now) {
+        Page p = g.page;
+        if (now - j.accountPickAt < ACCOUNT_LOAD_MS) return; // picked it: the other Inbox is loading
+        Rect entry = p.accountEntries.get(j.account.toLowerCase(Locale.ROOT));
+        if (entry != null) {
+            if (touch(j, g.window, entry.centerX(), entry.centerY(), TAP_MS)) {
+                j.accountPickAt = now;
+                Log.i(Keeper.TAG, "gmail helper: switched the web Gmail from " + p.account + " to " + j.account);
+            }
+            return;
+        }
+        if (now - j.accountMenuAt < ACCOUNT_WAIT_MS) return; // the account list is still opening
+        if (!p.accountEntries.isEmpty() || j.accountMenuTries >= 2) {
+            // The list is open (other accounts are listed) but not this one, or it never showed it.
+            if (!p.accountEntries.isEmpty() && p.accountButton != null) {
+                touch(j, g.window, p.accountButton.centerX(), p.accountButton.centerY(), TAP_MS); // close it
+            }
+            finish(j, false, "the web Gmail's account list has no " + j.account + " (sign it in to the web Gmail)");
+            return;
+        }
+        if (p.accountButton != null && touch(j, g.window, p.accountButton.centerX(), p.accountButton.centerY(), TAP_MS)) {
+            j.accountMenuAt = now;
+            j.accountMenuTries++;
+            Log.i(Keeper.TAG, "gmail helper: the web Gmail shows " + p.account + ", opened its account list to switch to " + j.account);
+        }
+    }
+
+    /**
      * A plain "open the Inbox" job (Kind.INBOX): a web Gmail window exists, so reuse it rather than
      * ever opening a second one. If it is already on the Inbox we are done; otherwise click Inbox in
      * the existing window, then finish. We never launch for this kind once a window has been seen.
      */
     private void reuseForInbox(Job j, Gmail g, long now) {
         Page p = g.page;
+        if (!p.accountIs(j.account)) {
+            switchAccount(j, g, now);
+            return;
+        }
         if (p.isList()) {
             finish(j, true, "web Gmail already open on the Inbox, reused it");
             return;
@@ -629,12 +685,15 @@ public class WebGmailHelper extends AccessibilityService {
         long time;
     }
 
+    private static final Pattern ACCOUNT_ENTRY = Pattern.compile("^([^,()@]+) ([\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+)$");
     private static final Pattern STAMP = Pattern.compile("^[A-Z][a-z]{2}, [A-Z][a-z]{2} \\d{1,2}, \\d{4}, \\d{1,2}:\\d{2} [AP]M$");
 
     private static final class Page {
         boolean gmail;                 // this is the web Gmail ("Search mail" box)
         boolean searching;             // something is in the search box (a search, not the Inbox)
         String account;                // "Google Account: Name (address)"
+        Rect accountButton;            // the profile picture button that opens the account list
+        final java.util.Map<String, Rect> accountEntries = new java.util.HashMap<>(); // address -> entry in the open account list
         int rows;                      // emails in the list
         String listId = "";            // the first email in the list (tells pages apart)
         Row row;                       // the job's email in the list
@@ -725,6 +784,21 @@ public class WebGmailHelper extends AccessibilityService {
             if (desc.startsWith("Google Account:") || text.startsWith("Google Account:")) {
                 int a = both.lastIndexOf('('), b = both.lastIndexOf(')');
                 if (a >= 0 && b > a && both.substring(a + 1, b).contains("@")) p.account = both.substring(a + 1, b);
+                if (cls.endsWith("Button") && n.isVisibleToUser()) {
+                    Rect r = new Rect();
+                    n.getBoundsInScreen(r);
+                    if (!r.isEmpty()) p.accountButton = r;
+                }
+            }
+            if (text.isEmpty() && n.isVisibleToUser()) {
+                // An entry of the open account list: labeled "Name address" (the current account's
+                // own entry is labeled differently, with commas, and is not needed).
+                Matcher m = ACCOUNT_ENTRY.matcher(desc);
+                if (m.matches()) {
+                    Rect r = new Rect();
+                    n.getBoundsInScreen(r);
+                    if (!r.isEmpty()) p.accountEntries.put(m.group(2).toLowerCase(Locale.ROOT), r);
+                }
             }
             if (low.equals("search mail")) p.gmail = true;
             if (cls.endsWith("EditText") && !text.isEmpty()) {
