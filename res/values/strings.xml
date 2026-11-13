@@ -64,7 +64,7 @@
 
     <string name="hd_brand">The Home Depot</string>
     <string name="channel_homedepot">Home Depot orders</string>
-    <string name="channel_homedepot_desc">Home Depot order updates (order confirmed, shipped, out for delivery, delivered, ready for pickup), shown from the order emails Home Depot sends, because the Home Depot app\'s own push notifications never reach this Googlebook. They are shown in addition to your email notification, which still arrives as usual, and they work with any email app on this Googlebook, such as Gmail and Outlook.</string>
+    <string name="channel_homedepot_desc">Home Depot order updates (order confirmed, shipped, out for delivery, delivered, ready for pickup) and sign-in verification codes, shown from the emails Home Depot sends, because the Home Depot app\'s own push notifications never reach this Googlebook. Other Home Depot emails, such as ads, get no card. They are shown in addition to your email notification, which still arrives as usual, and they work with any email app on this Googlebook, such as Gmail and Outlook.</string>
     <string name="hd_tap_hint">Tap to open the Home Depot app</string>
     <string name="hd_ok">✓ Home Depot orders: order update emails from any email app are also shown as Home Depot notifications that open the app when tapped, and your email notification still arrives as usual. Shown so far: %1$d.</string>
     <string name="hd_none">Home Depot orders: ready. When a Home Depot order update email arrives in any email app on this Googlebook, such as Gmail or Outlook, it is also shown here as a Home Depot notification that opens the app when tapped. Your email notification still arrives as usual.</string>

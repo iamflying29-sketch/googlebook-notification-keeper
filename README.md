@@ -197,15 +197,16 @@ listener to catch.
 What does arrive reliably is Home Depot's order update emails, such as order confirmed, shipped, out
 for delivery, delivered, and ready for pickup. Home Depot's own help pages name email and text
 messages as the ways they send order updates, and my laptop has no SIM card for text messages, so
-email is the signal that is always there. This feature turns those order emails into Home Depot
-notifications.
+email is the signal that is always there. This feature turns those order emails, and Home Depot's
+sign-in verification code emails, into Home Depot notifications. Other Home Depot emails, such as ads,
+get no card.
 
 ### How it works
 
 * **It is purely additive.** The email's own notification still arrives exactly as before. The Home
   Depot card is shown in addition to it, and the feature never hides, cancels, snoozes or changes the
-  email's notification. For every notification that is not a Home Depot order email, it does nothing
-  at all.
+  email's notification. For every notification that is not a Home Depot order or sign-in email, it does
+  nothing at all.
 * **It works with any email app**, not only the Gmail setup described above. It treats a notification
   as mail when it comes from Gmail Go on one of its per-account mail categories, from one of a list of
   common email apps (the full Gmail app, Microsoft Outlook, Outlook Lite, Yahoo Mail, Samsung Email,
@@ -219,6 +220,15 @@ notifications.
   the worst a wrong guess can do is show an ordinary email as a Home Depot card, while a real order
   update is never missed. Look-alike addresses such as `homedepot.com.example.com` and
   `fakehomedepot.com` are correctly rejected.
+* **Only order and sign-in emails get a card.** Once the sender is Home Depot, the Keeper reads the
+  email's subject. It shows a card only when the subject names an order update, with words such as
+  order, shipped, delivery, pickup, return, refund or cancellation, or a sign-in, such as a
+  verification code. Every other Home Depot email, an ad, a security alert or a password change for
+  example, gets no card, and its email notification arrives as usual. It reads the subject rather than
+  the preview, because an ad's preview can mention an order too. The words are a filter, not a
+  guarantee: an ad whose subject promises "free delivery on orders" would still get a card, and an
+  order email whose subject used none of these words would not. Every Home Depot order and code
+  subject I have seen uses one of them.
 * **The card is built from my own layout**, filled with Home Depot's orange, with white text and the
   Home Depot logo on a white tile. It shows the order status as its headline and a short line that
   says to tap to open the Home Depot app. It does not show the email address or the account, and it is
@@ -238,10 +248,13 @@ notifications.
   keeps the app in a phone-sized window once it opens. If the Home Depot app is not installed, the
   card opens homedepot.com instead.
 * **One email gives one card.** The same email often arrives through two email apps at once, for
-  example web Gmail and Gmail Go. The Keeper compares the emails' subjects, ignoring case and spacing,
-  and shows a card only for the first copy. A copy that arrives later from the other app adds nothing,
-  and if two cards are already showing when the listener reconnects, it removes the extra one. When I
-  tap or swipe away the card, the other app's copy of that email cannot bring it back either.
+  example web Gmail and Gmail Go, less than a second apart. The Keeper treats two copies as the same
+  email when their subjects match, ignoring case and spacing, and they arrived within 2 minutes of each
+  other, by their arrival time or by the email's own time. It shows a card only for the first copy. A
+  second copy adds nothing, and if two cards for the same email are already showing when the listener
+  reconnects, it removes the extra one. When I tap or swipe away the card, the other app's copy of that
+  email cannot bring it back either. A different email that only shares the subject and arrives later,
+  for example a second order with the same status, still gets its own card.
 * **A card you swipe away stays away.** If I swipe a Home Depot card off the screen, the Keeper
   remembers it and does not put that card back if the email's notification reappears later, for
   example when an email app reconnects. The choice is kept if the Keeper restarts, and the email's own
@@ -659,7 +672,7 @@ colons.
 * **What notification access means.** Like every notification listener, the Keeper is shown every
   notification on the device. It acts only on web notifications that their own site withdraws and,
   with the Gmail features, on notifications from Gmail Go and the Gmail web app, and, with the Home
-  Depot feature, on order update emails from Home Depot in any email app. Everything else is ignored.
+  Depot feature, on order update and sign-in emails from Home Depot in any email app. Everything else is ignored.
 * **What it stores.** In its private app storage it keeps counters, the time and source (the app name
   and website host) of the last kept copy, and, with the companion link, the saved notification
   categories of Gmail and Gmail Go. Those saved categories include their names and identifiers, and
@@ -667,7 +680,7 @@ colons.
   numbers: how long after arrival the last few emails were read. It stores no notification titles or
   texts in its files. The app sets `allowBackup` to false, so Android backup does not copy its data.
 * **The Home Depot feature** reads the sender address, display name, subject and account of mail
-  notifications so that it can recognize Home Depot's order emails, and it acts only on the ones that
+  notifications so that it can recognize Home Depot's order and sign-in emails, and it acts only on the ones that
   match. In its private storage it keeps only a count of the cards it has shown, the time of the last
   one, and a short list of the identifiers of the order cards you have swiped away, so that it does not
   put those back. Those identifiers are Android's own notification keys, which for some email apps
@@ -824,7 +837,7 @@ welcome.
 | `src/local/notifkeeper/ActionReceiver.java` | Gmail: runs Gmail Go's own background buttons |
 | `src/local/notifkeeper/SettingsGuard.java` | Gmail: saves and restores Gmail's and Gmail Go's notification categories |
 | `src/local/notifkeeper/DebugReceiver.java` | Gmail and Home Depot: test triggers that only adb can call |
-| `src/local/notifkeeper/HomeDepotBridge.java` | Home Depot: shows Home Depot order update emails from any email app as Home Depot notifications |
+| `src/local/notifkeeper/HomeDepotBridge.java` | Home Depot: shows Home Depot order update and sign-in emails from any email app as Home Depot notifications |
 | `res/values/strings.xml` | All app text |
 | `res/xml/web_gmail_helper.xml` | Accessibility settings for the Gmail helper |
 | `res/layout/` | The Home Depot order card, collapsed and expanded |

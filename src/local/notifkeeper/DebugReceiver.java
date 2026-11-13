@@ -95,10 +95,16 @@ public class DebugReceiver extends BroadcastReceiver {
             // from an email app" test with plain values, so any email app can be checked without a
             // real email (adb shell am broadcast -n local.notifkeeper/.DebugReceiver --ez hddetect true
             //    [--es pkg com.microsoft.office.outlook] [--es category email] [--es channel <id>]
-            //    [--es address orders@homedepot.com] [--es sender "The Home Depot"]).
+            //    [--es address orders@homedepot.com] [--es sender "The Home Depot"]
+            //    [--es subject "<subject>"]). With a subject it also logs whether that email is an order
+            //    or sign-in email, the only kind that gets a card.
             Log.i(Keeper.TAG, "home depot recognize test: " + HomeDepotBridge.looksLikeHomeDepotEmail(
                     i.getStringExtra("pkg"), i.getStringExtra("category"), i.getStringExtra("channel"),
                     i.getStringExtra("address"), i.getStringExtra("sender")));
+            if (i.hasExtra("subject")) {
+                Log.i(Keeper.TAG, "home depot order or sign-in test: "
+                        + HomeDepotBridge.isOrderOrSignIn(i.getStringExtra("subject")));
+            }
             return;
         }
         if (i.hasExtra("hd")) {

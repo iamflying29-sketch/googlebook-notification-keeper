@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Shows Home Depot order updates on the Googlebook as their own notifications.
@@ -96,14 +97,52 @@ final class HomeDepotBridge {
     /** Tags we are removing ourselves, so our own removal is never taken for a swipe you made. */
     private static final Set<String> selfRemoving = new HashSet<>();
     /**
-     * The email behind each of our cards in the tray (tag to subject key). One email often arrives
-     * through two email apps at once (web Gmail and Gmail Go), and it must still give one card only.
+     * The email behind each of our cards in the tray (tag to email). One email often arrives through
+     * two email apps at once (web Gmail and Gmail Go), and it must still give one card only.
      */
-    private static final Map<String, String> liveSubjects = new HashMap<>();
-    /** Emails whose card you just tapped or swiped away (subject key to time), so a late copy of the
-     *  same email from another email app does not bring the card back. */
-    private static final Map<String, Long> recentlyDismissed = new HashMap<>();
+    private static final Map<String, Mail> liveMails = new HashMap<>();
+    /** Emails whose card you just tapped or swiped away (email to the time you did), so a late copy of
+     *  the same email from another email app does not bring the card back. */
+    private static final Map<Mail, Long> recentlyDismissed = new HashMap<>();
     private static final long DISMISS_MEMORY_MS = 30 * 60 * 1000L;
+    /**
+     * Two copies are the same email only when their subjects match and they arrived within this time
+     * of each other. Two email apps deliver one email less than a second apart, while a different
+     * email with the same subject (another order with the same status) normally comes much later.
+     */
+    private static final long SAME_EMAIL_MS = 2 * 60 * 1000L;
+    /** Where a card keeps the arrival time and the email time of the email it shows. */
+    private static final String EXTRA_POST = "local.notifkeeper.hd.post";
+    private static final String EXTRA_WHEN = "local.notifkeeper.hd.when";
+    /**
+     * Only order emails and sign-in emails get a card; ads and other Home Depot mail do not. The test
+     * reads the subject, because an email's preview text can mention an order in an ad too.
+     */
+    private static final Pattern ORDER_WORDS = Pattern.compile("\\b(orders?|ordered|ship|shipped|shipping"
+            + "|shipments?|deliver(y|ies|ed|ing)?|pick ?ups?|picked up|returns?|returned|refunds?|refunded"
+            + "|cancel(ed|led|lation)?|backorder(ed)?|tracking|receipt)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SIGN_IN_WORDS = Pattern.compile("\\b(verification code|one[ -]time (pass)?code"
+            + "|passcode|security code|log[ -]?in code|sign[ -]in code|sign[ -]in|signed in|log[ -]?in"
+            + "|logged in)\\b", Pattern.CASE_INSENSITIVE);
+
+    /** One email as the Home Depot cards see it: its subject, when it arrived, and its own time. */
+    private static final class Mail {
+        final String subject;
+        final long post;
+        final long when;
+
+        Mail(String subject, long post, long when) {
+            this.subject = subject;
+            this.post = post;
+            this.when = when;
+        }
+
+        /** Whether another copy is this same email: the same subject, arriving at about the same time. */
+        boolean sameEmail(Mail o) {
+            return o != null && subject.equals(o.subject)
+                    && (Math.abs(post - o.post) <= SAME_EMAIL_MS || Math.abs(when - o.when) <= SAME_EMAIL_MS);
+        }
+    }
 
     private HomeDepotBridge() {}
 
@@ -231,18 +270,18 @@ final class HomeDepotBridge {
         List<String> duplicates = new ArrayList<>();
         synchronized (LOCK) {
             live.clear();
-            liveSubjects.clear();
+            liveMails.clear();
             for (StatusBarNotification x : all) {
                 if (x.getTag() != null && x.getTag().startsWith(TAG_PREFIX)
                         && x.getPackageName().equals(s.getPackageName())) {
                     live.add(x.getTag());
-                    String key = subjectKey(x.getNotification().extras.getCharSequence(Notification.EXTRA_TEXT));
-                    if (key != null && liveSubjects.containsValue(key)) {
+                    Mail m = cardMail(x);
+                    if (m != null && hasLiveCopy(m)) {
                         duplicates.add(x.getKey()); // a second card for an email that already has one
                         live.remove(x.getTag());
                         selfRemoving.add(x.getTag());
-                    } else if (key != null) {
-                        liveSubjects.put(x.getTag(), key);
+                    } else if (m != null) {
+                        liveMails.put(x.getTag(), m);
                     }
                 }
             }
@@ -280,20 +319,39 @@ final class HomeDepotBridge {
             // do not put our card back when the email notification re-posts.
             return false;
         }
-        String subjectKey = subjectKey(n.extras.getCharSequence(Notification.EXTRA_TEXT));
+        CharSequence subjectText = n.extras.getCharSequence(Notification.EXTRA_TEXT);
+        if (!isOrderOrSignIn(subjectText)) {
+            // A Home Depot email that is neither an order update nor a sign-in email, an ad for
+            // example: no card. The email's own notification still arrives as usual.
+            synchronized (LOCK) {
+                if (live.contains(tag)) return false;
+            }
+            Log.i(Keeper.TAG, "home depot: not an order or sign-in email, so no card");
+            return false;
+        }
+        Mail mail = sourceMail(sbn);
+        boolean dismissedCopy = false;
         synchronized (LOCK) {
             if (live.contains(tag)) return false; // our card is already up
-            if (subjectKey != null && liveSubjects.containsValue(subjectKey)) {
+            if (mail != null && hasLiveCopy(mail)) {
                 // The same email through a second email app (web Gmail and Gmail Go): one card only.
                 Log.i(Keeper.TAG, "home depot: this email already has a card (it also came from "
                         + sbn.getPackageName() + "), so no second card");
                 return false;
             }
-            Long gone = subjectKey != null ? recentlyDismissed.get(subjectKey) : null;
-            if (gone != null && System.currentTimeMillis() - gone < DISMISS_MEMORY_MS) {
-                addDismissed(s, srcKey);
-                return false; // you already tapped or cleared this email's card
+            if (mail != null) {
+                long now = System.currentTimeMillis();
+                for (Map.Entry<Mail, Long> e : recentlyDismissed.entrySet()) {
+                    if (now - e.getValue() < DISMISS_MEMORY_MS && e.getKey().sameEmail(mail)) {
+                        dismissedCopy = true;
+                        break;
+                    }
+                }
             }
+        }
+        if (dismissedCopy) {
+            addDismissed(s, srcKey);
+            return false; // you already tapped or cleared this email's card
         }
         if ((n.flags & (Notification.FLAG_ONGOING_EVENT | Notification.FLAG_FOREGROUND_SERVICE)) != 0) {
             return false; // a sync or sending status, not a received email
@@ -314,10 +372,10 @@ final class HomeDepotBridge {
         CharSequence big = x.getCharSequence(Notification.EXTRA_BIG_TEXT);
         long when = n.when != 0 ? n.when : sbn.getPostTime();
 
-        show(s, tag, sender, subject, big, when, mayAlert);
+        show(s, tag, sender, subject, big, when, sbn.getPostTime(), mayAlert);
         synchronized (LOCK) {
             live.add(tag);
-            if (subjectKey != null) liveSubjects.put(tag, subjectKey);
+            if (mail != null) liveMails.put(tag, mail);
         }
         if (mayAlert) {
             SharedPreferences p = Keeper.prefs(s);
@@ -331,7 +389,7 @@ final class HomeDepotBridge {
 
     /** Builds and posts the Home Depot order notification. */
     private static void show(Context c, String tag, CharSequence sender, CharSequence subject, CharSequence big,
-            long when, boolean alert) {
+            long when, long post, boolean alert) {
         createChannel(c);
         // Tap: with the Home Depot Helper app installed, the tap goes to the exact place in the Home
         // Depot app (the order itself, the purchase history, or the sign-in code field); without it,
@@ -385,6 +443,12 @@ final class HomeDepotBridge {
                 .setCustomBigContentView(expanded)
                 .setCustomHeadsUpContentView(collapsed)
                 .setContentIntent(tap);
+        // The card remembers which email it shows, so a restart of the Keeper can still tell a second
+        // copy of the same email from a different email with the same subject.
+        Bundle mine = new Bundle();
+        mine.putLong(EXTRA_POST, post);
+        mine.putLong(EXTRA_WHEN, when);
+        b.addExtras(mine);
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(tag, ID, b.build());
     }
@@ -464,12 +528,13 @@ final class HomeDepotBridge {
         if (tag == null || !tag.startsWith(TAG_PREFIX)) return;
         String srcKey = tag.substring(TAG_PREFIX.length());
         boolean weRemoved;
-        String key;
+        Mail mail;
         synchronized (LOCK) {
             live.remove(tag);
-            key = liveSubjects.remove(tag);
+            mail = liveMails.remove(tag);
             weRemoved = selfRemoving.remove(tag);
         }
+        if (mail == null) mail = cardMail(sbn);
         // The same reasoning as the Gmail mirror: decide by whether we asked for it, not by the reason
         // code (which differs between devices and between a single card and a stack). Anything removed
         // without the Keeper asking, other than the system's own churn, is your dismissal.
@@ -477,22 +542,21 @@ final class HomeDepotBridge {
         boolean youDismissed = !weRemoved && !systemChurn;
         if (youDismissed) {
             addDismissed(c, srcKey);
-            if (key != null) {
+            if (mail != null) {
                 // The same email may also be showing from another email app; its card must not come
-                // back either, now or when that app re-posts it.
+                // back either, now or when that app re-posts it. A different email that only shares the
+                // subject is not affected.
                 synchronized (LOCK) {
                     long now = System.currentTimeMillis();
                     recentlyDismissed.entrySet().removeIf(e -> now - e.getValue() > DISMISS_MEMORY_MS);
-                    recentlyDismissed.put(key, now);
+                    recentlyDismissed.put(mail, now);
                 }
                 KeeperListener l = KeeperListener.current;
                 try {
                     if (l != null) {
                         for (StatusBarNotification x : l.getActiveNotifications()) {
                             if (x.getPackageName().equals(c.getPackageName()) || !isHomeDepotMail(x)) continue;
-                            if (key.equals(subjectKey(x.getNotification().extras.getCharSequence(Notification.EXTRA_TEXT)))) {
-                                addDismissed(c, x.getKey());
-                            }
+                            if (mail.sameEmail(sourceMail(x))) addDismissed(c, x.getKey());
                         }
                     }
                 } catch (RuntimeException e) {
@@ -509,6 +573,38 @@ final class HomeDepotBridge {
         if (subject == null) return null;
         String k = subject.toString().trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
         return k.isEmpty() ? null : k;
+    }
+
+    /** Whether a card is already showing for this email (caller holds LOCK). */
+    private static boolean hasLiveCopy(Mail m) {
+        for (Mail o : liveMails.values()) if (m.sameEmail(o)) return true;
+        return false;
+    }
+
+    /** The email behind an email app's notification, or null when it has no subject. */
+    private static Mail sourceMail(StatusBarNotification sbn) {
+        Notification n = sbn.getNotification();
+        String key = subjectKey(n.extras.getCharSequence(Notification.EXTRA_TEXT));
+        if (key == null) return null;
+        long post = sbn.getPostTime();
+        return new Mail(key, post, n.when != 0 ? n.when : post);
+    }
+
+    /** The email behind one of our cards, from the times the card keeps, or null when it has no subject. */
+    private static Mail cardMail(StatusBarNotification card) {
+        Notification n = card.getNotification();
+        String key = subjectKey(n.extras.getCharSequence(Notification.EXTRA_TEXT));
+        if (key == null) return null;
+        long post = n.extras.getLong(EXTRA_POST, card.getPostTime());
+        long when = n.extras.getLong(EXTRA_WHEN, n.when != 0 ? n.when : post);
+        return new Mail(key, post, when);
+    }
+
+    /** Whether an email's subject marks it as an order update or a sign-in email. */
+    static boolean isOrderOrSignIn(CharSequence subject) {
+        if (subject == null) return false;
+        String t = subject.toString();
+        return ORDER_WORDS.matcher(t).find() || SIGN_IN_WORDS.matcher(t).find();
     }
 
     private static String channelAccount(String channelId) {
@@ -538,16 +634,6 @@ final class HomeDepotBridge {
         p.edit().putString(PREF_DISMISSED, String.join("\n", keys)).apply();
     }
 
-    // ---- status window -------------------------------------------------------------------------
-
-    static int liveCount(Context c) {
-        int n = 0;
-        for (StatusBarNotification x : c.getSystemService(NotificationManager.class).getActiveNotifications()) {
-            if (x.getTag() != null && x.getTag().startsWith(TAG_PREFIX)) n++;
-        }
-        return n;
-    }
-
     // ---- the adb test trigger (DebugReceiver) --------------------------------------------------
 
     /**
@@ -558,7 +644,7 @@ final class HomeDepotBridge {
         String tag = TAG_PREFIX + "test-" + System.currentTimeMillis();
         show(c, tag, sender != null ? sender : c.getString(R.string.hd_brand),
                 subject != null ? subject : "Your order is out for delivery",
-                null, System.currentTimeMillis(), true);
+                null, System.currentTimeMillis(), System.currentTimeMillis(), true);
         synchronized (LOCK) {
             live.add(tag);
         }
@@ -566,9 +652,13 @@ final class HomeDepotBridge {
     }
 
     /**
-     * Removes any test order notifications this module posted (adb only, see DebugReceiver). Prefers
-     * the listener, whose getActiveNotifications is reliable; a plain app context's is not on this
-     * desktop. Real cards are never cleared this way; they are only cleared by you or by the app.
+     * Removes any test order notifications this module posted (adb only, see DebugReceiver). It asks
+     * the listener for the active notifications when the listener is running, and the app's own
+     * NotificationManager otherwise. In one test on 2026-10-29 the NotificationManager call, made from
+     * this debug receiver, returned no notifications, so the listener comes first here. That is a
+     * single observation, not a known rule: the Keeper's other code uses the NotificationManager call
+     * and it works there. Real cards are never cleared this way; they are only cleared by you or by
+     * the app.
      */
     static void clearTests(Context c) {
         int n = 0;
